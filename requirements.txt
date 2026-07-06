@@ -1,0 +1,8 @@
+pymupdf4llm
+pymupdf
+pydantic
+google-generativeai
+requests
+streamlit
+python-dotenv
+reportlab

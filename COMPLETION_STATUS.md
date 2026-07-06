@@ -12,7 +12,7 @@
 
 | Phase | Status | Notes |
 |:---|:---:|:---|
-| Phase 1: Core Infrastructure + API Layer + Caching | 🟡 In Progress | Starting now |
+| Phase 1: Core Infrastructure + API Layer + Caching | ✅ Complete | Finished core, models, and services |
 | Phase 2: All Agents Working Independently | ⬜ Not Started | |
 | Phase 3: Custom Orchestrator + Conflict Resolution | ⬜ Not Started | |
 | Phase 4: Streamlit UI | ⬜ Not Started | |
@@ -28,30 +28,30 @@
 
 | Task | File | Status | Notes |
 |:---|:---|:---:|:---|
-| PDF text extraction (pymupdf4llm) | `core/pdf_parser.py` | 🟡 | Building now |
-| Text chunker (sections → paragraphs → sentences) | `core/text_chunker.py` | 🟡 | Building now |
-| Reference parser (LLM-based) | `core/reference_parser.py` | ⬜ | |
+| PDF text extraction (pymupdf4llm) | `core/pdf_parser.py` | ✅ | Completed via pymupdf4llm |
+| Text chunker (sections → paragraphs → sentences) | `core/text_chunker.py` | ✅ | Sections, paragraphs, sentences splitting added |
+| Reference parser (LLM-based) | `core/reference_parser.py` | ✅ | Basic parsing using LLM or regex fallback |
 | AWS Textract fallback for scanned PDFs | `core/pdf_parser.py` | ⬜ | Optional |
 
 ### Person 2 Tasks
 
 | Task | File | Status | Notes |
 |:---|:---|:---:|:---|
-| Gemini 3.1 Flash Lite wrapper | `services/gemini.py` | 🟡 | Building now |
-| Semantic Scholar API wrapper | `services/semantic_scholar.py` | 🟡 | Building now |
-| CrossRef API wrapper | `services/crossref.py` | 🟡 | Building now |
-| Serper web search wrapper | `services/serper.py` | 🟡 | Building now |
-| File-based JSON cache | `services/cache.py` | 🟡 | Building now |
+| Gemini 3.1 Flash Lite wrapper | `services/gemini.py` | ✅ | Done |
+| Semantic Scholar API wrapper | `services/semantic_scholar.py` | ✅ | Done |
+| CrossRef API wrapper | `services/crossref.py` | ✅ | Done |
+| Serper web search wrapper | `services/serper.py` | ✅ | Done |
+| File-based JSON cache | `services/cache.py` | ✅ | Done |
 
 ### Shared Tasks
 
 | Task | File | Status | Notes |
 |:---|:---|:---:|:---|
-| Report data model | `models/report.py` | 🟡 | Building now |
-| Reference data model | `models/reference.py` | 🟡 | Building now |
-| Project structure setup | Various | 🟡 | Building now |
-| requirements.txt | `requirements.txt` | 🟡 | Building now |
-| .env.example | `.env.example` | 🟡 | Building now |
+| Report data model | `models/report.py` | ✅ | Done |
+| Reference data model | `models/reference.py` | ✅ | Done |
+| Project structure setup | Various | ✅ | Folders and inits created |
+| requirements.txt | `requirements.txt` | ✅ | Done |
+| .env.example | `.env.example` | ✅ | Done |
 | Sample test papers | `tests/sample_papers/` | ⬜ | Need real PDFs |
 
 ### Phase 1 Checkpoint

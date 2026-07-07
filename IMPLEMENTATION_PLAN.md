@@ -1,7 +1,57 @@
 # Implementation Plan: PaperGuard
 
-> **Multi-Agent Academic Paper Verification System**
-> A free, all-in-one tool that checks plagiarism, AI-generated content, citation validity, and writing quality — using a society of collaborating AI agents.
+> **Multi-Agent Academic Integrity Verification System**
+> An open, agent-based tool that verifies citations, detects AI-generated
+> content, checks plagiarism, and assesses writing quality — for both student
+> work and research-paper submissions (IEEE, ACM, Elsevier, etc.).
+
+---
+
+## Architecture Update (v2) — authoritative, supersedes conflicting details below
+
+> The sections further down capture the original plan and reasoning. Where they
+> conflict with this update, **this section wins.**
+
+### 1. Scope
+PaperGuard is for academic integrity generally — not just students. Framing,
+prompts, and UI copy are research-grade (e.g. "research-integrity check",
+"pre-submission verification"), suitable for authors targeting IEEE/ACM/Elsevier
+as well as coursework.
+
+### 2. Orchestration = CrewAI (agents-as-tools)
+We now use **CrewAI** as the multi-agent orchestration layer (this supersedes
+the earlier "custom orchestrator, no framework" decision). Design rules:
+- Each concern is a CrewAI `Agent` with a role/goal and a set of **tools**.
+- All fact-lookups and computations stay **deterministic tools** (CrossRef,
+  Semantic Scholar, Serper, the PyTorch detector, burstiness math, the conflict
+  resolver). The LLM never performs lookups — only reasoning, synthesis, and
+  conflict resolution. This keeps results trustworthy and reproducible.
+- A coordinating agent/task assembles the final `models.report.Report`.
+
+### 3. AI-Detection Safety Net (replaces the single AI-Detection agent design)
+AI detection is a two-agent society with a resolver, run per paragraph:
+- **Detector Agent** (`agents/detector_agent.py`) — the fine-tuned PyTorch
+  model `vediumsameer/paperguard-ai-detector` (v2.0). Pure statistics. Fast but
+  prone to mode collapse (ESL false-positives; "100% human" on style-masked AI).
+- **Linguistic Agent** (`agents/linguistic_agent.py`) — an LLM reads tone,
+  structure, and intent to catch the Detector's blind spots.
+- **Conflict Resolver** (`agents/conflict_resolver.py`) — when the two diverge
+  by >30, it overrides: adopt the LLM verdict on logit-saturation (model≈human,
+  LLM=AI) or ESL false-positive (model=AI, LLM=human); otherwise a 40/60
+  weighted consensus favouring context. Burstiness (`ai_detection_agent.py`)
+  feeds the resolver as a tie-breaker.
+
+Output: a per-paragraph AI heatmap with reasoning attached on every override.
+
+### 4. Detector model details
+`transformers` loads the model locally (auto-download + cache). Label index
+`0 = AI`, `1 = human` (per model config). Graceful degradation: if
+torch/transformers/model are unavailable, the Detector disables itself and the
+Linguistic agent carries AI detection alone.
+
+### 5. Reasoning LLM
+Gemini (free tier) by default; the Linguistic agent takes a pluggable LLM
+callable so Qwen (or another backend) can be swapped in without code changes.
 
 ---
 
@@ -353,7 +403,7 @@ Step 4: Generate improvement suggestions
 | Component | Choice | Why |
 |:---|:---|:---|
 | **Language** | Python | Best ecosystem for NLP, APIs, LLM tools |
-| **Agent Framework** | Custom orchestrator (no framework) | Simpler than CrewAI, full control, no abstraction overhead |
+| **Agent Framework** | CrewAI (agents-as-tools) | Top-class multi-agent orchestration; deterministic tools keep fact-lookups trustworthy (see Architecture Update v2) |
 | **LLM** | Gemini 3.1 Flash Lite (free tier) | 15–30 RPM / 250K–1M TPM free. Cheapest Gemini model, optimized for high-volume tasks |
 | **PDF Parsing** | pymupdf4llm | Layout-aware extraction (handles two-column academic papers correctly) |
 | **Web Framework** | Streamlit | Fastest path to a working web app. Free. Deployed on Streamlit Community Cloud for v1. |

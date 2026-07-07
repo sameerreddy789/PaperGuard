@@ -1,213 +1,202 @@
-# 🛡️ PaperGuard
+# PaperGuard
 
-> **Multi-Agent Academic Paper Verification System**
-> A free, open-source tool that checks plagiarism, AI-generated content, citation validity, and writing quality — using a society of collaborating AI agents.
+> **Multi-Agent Academic Integrity Verification**
+> An open, agent-based system that verifies citations, detects AI-generated
+> text, checks for plagiarism, and assesses writing quality — built for authors
+> and reviewers of academic work, from student assignments to research papers
+> submitted to venues like IEEE, ACM, and Elsevier.
 
 ---
 
-## ⚠️ IMPORTANT: Before Every Push
+## Why PaperGuard
 
-> **You MUST update [`COMPLETION_STATUS.md`](./COMPLETION_STATUS.md) before every git push.**
-> Mark what's done, what's in progress, and what's next. This keeps the team synchronized.
+Existing tools each solve one slice of the problem and none verify whether a
+citation actually supports the claim it is attached to. PaperGuard combines four
+verification concerns into one coordinated multi-agent pipeline, and adds a
+self-correcting "safety net" for AI detection so a single brittle model never
+gets the last word.
 
-```bash
-# Before every push:
-# 1. Update COMPLETION_STATUS.md
-# 2. Then commit and push
-git add .
-git commit -m "your message"
-git push origin main
+| Capability | Turnitin | GPTZero | **PaperGuard** |
+|:---|:---:|:---:|:---:|
+| Plagiarism detection | Yes (proprietary DB) | No | Yes (open sources) |
+| AI-content detection | Yes | Yes | Yes (model + LLM safety net) |
+| Citation existence check | No | No | Yes |
+| **Citation claim verification** | No | No | **Yes (headline feature)** |
+| Writing-quality analysis | No | No | Yes |
+| Open source | No | No | **Yes** |
+
+**Headline feature:** we don't just check that a reference exists — we verify
+that the cited work's abstract actually *supports* the claim being made. No
+mainstream tool does this.
+
+---
+
+## The AI-Detection Safety Net
+
+Raw statistical detectors are brittle. Our fine-tuned classifier
+([`vediumsameer/paperguard-ai-detector`](https://huggingface.co/vediumsameer/paperguard-ai-detector),
+v2.0) can suffer *mode collapse* — over-flagging rigid non-native (ESL) writing
+as AI, or being fooled into "100% human" by style-masked AI text. Instead of
+trusting it blindly, we wrap it in a cognitive safety net:
+
+```
+                 per paragraph
+                      │
+        ┌─────────────┴─────────────┐
+        ▼                           ▼
+  Detector Agent              Linguistic Agent
+  (PyTorch model,             (LLM reads tone,
+   pure statistics)            structure, intent)
+        │                           │
+        └─────────────┬─────────────┘
+                      ▼
+              Conflict Resolver
+   • Agree           → keep score, highlight paragraph
+   • Model ~100% Human + LLM high AI  → override (style-masked AI caught)
+   • Model ~100% AI  + LLM low AI     → override (ESL false-positive cleared)
+   • Otherwise disagree               → weighted 40/60 consensus (favour context)
 ```
 
----
-
-## 🎯 What Makes PaperGuard Different?
-
-| Feature | Turnitin | GPTZero | **PaperGuard** |
-|:---|:---:|:---:|:---:|
-| Plagiarism Detection | ✅ (proprietary DB) | ❌ | ✅ (open sources) |
-| AI Content Detection | ✅ | ✅ (trained model) | ✅ (LLM classifier + burstiness) |
-| Citation Existence Check | ❌ | ❌ | ✅ |
-| **Citation Claim Verification** | ❌ | ❌ | **✅ ⭐ Killer Feature** |
-| Writing Quality Analysis | ❌ | ❌ | ✅ |
-| Free & Open Source | ❌ ($$$) | ❌ (freemium) | **✅ 100% Free** |
-
-**Our killer feature:** We don't just check if a reference exists — we verify that the cited paper's abstract actually *supports* the claim being made. No mainstream tool does this.
+The result is a per-paragraph AI heatmap with a transparent, defensible verdict
+— and reasoning attached wherever the LLM overrides the model.
 
 ---
 
-## 🏗️ Tech Stack
+## The Agent Society (CrewAI)
+
+PaperGuard is orchestrated as a **CrewAI** multi-agent crew. Each agent owns a
+concern and is equipped with deterministic **tools** (API lookups, PyTorch
+inference, math). The LLM handles reasoning, synthesis, and conflict resolution
+— never fact-lookups, which stay deterministic so results are trustworthy.
+
+| Agent | Role | Tools it uses |
+|:---|:---|:---|
+| Citation Verifier | Existence + claim support (4-tier) | CrossRef, Semantic Scholar, LLM claim check |
+| AI-Detection (Detector + Linguistic) | Per-paragraph AI likelihood + safety net | PyTorch model, LLM, burstiness math |
+| Plagiarism Checker | Overlap with open web + scholarly sources | Serper, CrossRef, Semantic Scholar, LLM similarity |
+| Writing-Quality Reviewer | Structure, readability, prose | Readability math, LLM prose review |
+| Orchestrator / Conflict Resolver | Coordinates agents, resolves cross-agent conflicts, builds the report | — |
+
+---
+
+## Tech Stack
 
 | Component | Choice |
 |:---|:---|
-| **Language** | Python |
-| **LLM** | Gemini 3.1 Flash Lite (free tier) |
-| **PDF Parsing** | pymupdf4llm (layout-aware, handles two-column papers) |
-| **Reference APIs** | CrossRef (primary, unlimited) + Semantic Scholar (abstracts) |
-| **Web Search** | Serper API (2,500 free credits/month) |
-| **Web Framework** | Streamlit |
-| **Deployment** | Streamlit Community Cloud (v1) |
-| **Orchestration** | Custom Python orchestrator (no framework) |
+| Language | Python 3.10+ |
+| Agent framework | CrewAI (agents-as-tools pattern) |
+| Reasoning LLM | Gemini (free tier); pluggable (Qwen-ready) |
+| AI-detection model | `vediumsameer/paperguard-ai-detector` (DistilBERT, v2.0, local via `transformers`) |
+| PDF parsing | pymupdf4llm (layout-aware, handles two-column papers) |
+| Reference APIs | CrossRef (unlimited) + Semantic Scholar (abstracts) |
+| Web search | Serper |
+| UI | Streamlit |
+| Caching | File-based JSON cache |
 
-### 📚 Training Datasets (AI Detection Model)
-Our AI detection model is locally fine-tuned on a massive aggregation of the following open-source datasets (totaling 125,000+ samples) to ensure robust detection across all frontier LLMs (GPT-4o, LLaMA-3, Claude, Gemini, etc.):
-- [Rajarshi-Roy-research/Defactify_Text_Dataset](https://huggingface.co/datasets/Rajarshi-Roy-research/Defactify_Text_Dataset)
-- [Ateeqq/AI-and-Human-Generated-Text](https://huggingface.co/datasets/Ateeqq/AI-and-Human-Generated-Text)
-*(Note: To save space and bandwidth, the raw dataset files and cached checkpoints are explicitly `.gitignore`'d and are not hosted in this GitHub repository).*
+### AI-detection training data
+The detector was fine-tuned on an aggregation of open datasets (125k+ samples)
+spanning many frontier LLMs (GPT-4o, LLaMA-3, Claude, Gemini, Mistral, Qwen),
+including the Defactify text dataset, Ateeqq AI-vs-Human text, a Claude Opus
+distillation set, and a slice of the AI-text-detection pile. Raw datasets and
+checkpoints are gitignored (see `train_mega_dataset.py` for the pipeline).
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 paperguard/
-├── app.py                    # Streamlit web app entry point
-├── requirements.txt          # Python dependencies
-├── .env.example              # API keys template
+├── main.py                    # CLI entry: full analysis of a paper
+├── app.py                     # Streamlit UI (planned)
+├── requirements.txt
+├── .env.example               # API keys template
 │
-├── core/
-│   ├── __init__.py
-│   ├── pdf_parser.py         # pymupdf4llm text extraction
-│   ├── text_chunker.py       # Split into sections → paragraphs → sentences
-│   └── reference_parser.py   # LLM-based reference extraction
+├── core/                      # PDF/text/reference processing
+│   ├── pdf_parser.py          # pymupdf4llm extraction
+│   ├── text_chunker.py        # sections → paragraphs → sentences
+│   └── reference_parser.py    # LLM + heuristic reference extraction
 │
-├── services/
-│   ├── __init__.py
-│   ├── gemini.py             # Gemini 3.1 Flash Lite wrapper
-│   ├── semantic_scholar.py   # Semantic Scholar API
-│   ├── crossref.py           # CrossRef API
-│   ├── serper.py             # Serper web search
-│   └── cache.py              # File-based JSON cache
+├── services/                  # External API wrappers (+ cache)
+│   ├── gemini.py  crossref.py  semantic_scholar.py  serper.py  cache.py
 │
-├── agents/
-│   ├── __init__.py
-│   ├── orchestrator.py       # Custom orchestrator
-│   ├── citation_agent.py     # Citation verification (⭐ killer feature)
-│   ├── ai_detection_agent.py # AI detection (LLM classifier + burstiness)
-│   ├── plagiarism_agent.py   # Plagiarism checking
-│   └── quality_agent.py      # Writing quality assessment
+├── agents/                    # Verification agents + orchestration
+│   ├── base.py                # shared BaseAgent + CLI harness
+│   ├── citation_agent.py      # citation existence + claim verification
+│   ├── detector_agent.py      # PyTorch AI classifier (the "math")
+│   ├── linguistic_agent.py    # LLM contextual AI analyst (the "brain")
+│   ├── conflict_resolver.py   # AI-detection safety net logic
+│   ├── ai_detection_agent.py  # burstiness signal (feeds the resolver)
+│   ├── plagiarism_agent.py    # open-source overlap detection
+│   ├── quality_agent.py       # writing-quality assessment
+│   └── orchestrator.py        # CrewAI crew (planned)
 │
-├── models/
-│   ├── __init__.py
-│   ├── report.py             # Report data model
-│   └── reference.py          # Reference data model
+├── models/                    # Pydantic data models (report, reference)
+├── tests/                     # Sample papers + tests
+├── train_mega_dataset.py      # Detector training pipeline (reference)
+├── ood_stress_test.py         # Out-of-distribution validation gauntlet
 │
-├── tests/
-│   ├── __init__.py
-│   ├── test_pdf_parser.py
-│   ├── test_services.py
-│   ├── test_citation_agent.py
-│   └── sample_papers/
-│       └── (test PDFs go here)
-│
-├── cache/                    # Cached API responses (gitignored)
-│
-├── IMPLEMENTATION_PLAN.md    # Full technical plan
-├── COMPLETION_STATUS.md      # Current progress tracker
-└── README.md                 # This file
+├── IMPLEMENTATION_PLAN.md      # Technical plan (see Architecture Update at top)
+├── COMPLETION_STATUS.md        # Progress tracker (update before every push)
+└── README.md
 ```
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
-### Prerequisites
-- Python 3.10+
-- API Keys (all free):
-  - [Gemini API Key](https://aistudio.google.com/) (Google AI Studio)
-  - [Semantic Scholar API Key](https://www.semanticscholar.org/product/api) (free, optional but recommended)
-  - [Serper API Key](https://serper.dev/) (2,500 free credits/month)
-
-### Setup
+Prerequisites: Python 3.10+, and free API keys for Gemini and Serper (CrossRef
+needs none; Semantic Scholar is optional but recommended).
 
 ```bash
-# Clone the repo
 git clone https://github.com/sameerreddy789/PaperGuard.git
 cd PaperGuard
 
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+venv\Scripts\activate            # Windows;  source venv/bin/activate on macOS/Linux
 
-# Install dependencies
 pip install -r requirements.txt
 
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your API keys
+copy .env.example .env           # then edit .env with your keys
 
-# Run the app
+# CLI (engine)
+python main.py path/to/paper.pdf
+
+# UI (once available)
 streamlit run app.py
 ```
 
-### CLI Mode (for testing without UI)
+Individual agents are runnable standalone for testing (they accept `.pdf`,
+`.md`, or `.txt`):
+
 ```bash
-# Test PDF parsing
-python -m core.pdf_parser path/to/paper.pdf
-
-# Test citation verification
-python -m agents.citation_agent path/to/paper.pdf
-
-# Run full analysis
-python main.py path/to/paper.pdf
+python -m agents.citation_agent   tests/sample_papers/sample_paper.md
+python -m agents.detector_agent   tests/sample_papers/sample_paper.md
+python -m agents.linguistic_agent tests/sample_papers/sample_paper.md
 ```
 
 ---
 
-## 📊 How It Works
+## Honest Limitations
 
-```
-Upload PDF
-    │
-    ▼
-┌─────────────────────┐
-│  pymupdf4llm        │  Layout-aware extraction
-│  (handles 2-column) │  (no gibberish text)
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  Reference Parser   │  LLM extracts structured
-│  (Gemini Flash Lite)│  references from text
-└─────────┬───────────┘
-          │
-    ┌─────┼─────┬──────────┐
-    ▼     ▼     ▼          ▼
-  Citation  AI    Plagiarism  Writing
-  Agent   Detection  Agent    Quality
-  (⭐)    Agent              Agent
-    │     │     │          │
-    └─────┼─────┴──────────┘
-          ▼
-┌─────────────────────┐
-│  Conflict Resolver  │  Agents disagree?
-│  (Custom Pipeline)  │  Orchestrator decides.
-└─────────┬───────────┘
-          │
-          ▼
-    📋 Final Report
-    📥 Download as PDF
-```
+- **Not a Turnitin replacement.** Plagiarism checks cover open-access papers and
+  the open web, not Turnitin's proprietary student-paper database.
+- **AI detection is an indicator, not a verdict.** The safety net makes it far
+  more robust than a bare classifier, but results are probabilistic and always
+  shown with confidence and reasoning.
+- **Best used as a pre-submission integrity check** — for authors to catch
+  issues (fabricated citations, unsupported claims, AI-pattern sections) before
+  reviewers do.
 
 ---
 
-## ⚠️ Honest Limitations
+## Contributing
 
-- **Not a Turnitin replacement.** We check open-access papers and web sources only. We don't have access to Turnitin's proprietary database of 1B+ student papers.
-- **AI detection is an indicator, not a verdict.** We use LLM classification + burstiness math. It's less accurate than GPTZero's trained model.
-- **Best used as a pre-submission self-check.** "Catch issues before your professor does."
+1. Update `COMPLETION_STATUS.md` before every push.
+2. Follow the architecture in `IMPLEMENTATION_PLAN.md` (see the Architecture
+   Update section at the top for current decisions).
+3. Keep fact-lookups deterministic (tools), reasoning in the LLM (agents).
+4. Be honest about limitations in the UI.
 
----
+## License
 
-## 📝 License
-
-MIT License — free to use, modify, and distribute.
-
----
-
-## 🤝 Contributing
-
-1. Update `COMPLETION_STATUS.md` before every push
-2. Follow the phase structure in `IMPLEMENTATION_PLAN.md`
-3. Test with real academic papers before marking features as complete
-4. Be honest about limitations in the UI
+MIT.

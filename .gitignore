@@ -36,6 +36,9 @@ venv/
 cache/
 .cache/
 training/
+hf_cache/
+*.arrow
+*.safetensors
 
 # Local scratch / verification artifacts
 _scratch_*

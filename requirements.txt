@@ -6,3 +6,10 @@ requests
 streamlit
 python-dotenv
 reportlab
+
+# AI Detection Agent (local PyTorch inference of vediumsameer/paperguard-ai-detector).
+# CPU-only deployments can install the CPU build of torch. The Detector agent
+# degrades gracefully (disables itself) if torch/transformers are unavailable.
+torch
+transformers
+accelerate

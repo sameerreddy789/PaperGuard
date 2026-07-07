@@ -61,7 +61,7 @@ class ReferenceParser:
 
     def _parse_with_llm(self, text: str) -> List[Reference]:
         """Uses Gemini to extract structured JSON matching the Reference schema."""
-        prompt = f\"\"\"
+        prompt = f"""
         Extract the academic references from the following text.
         Return ONLY a JSON list of objects. Each object MUST have these exact keys:
         - authors (list of strings)
@@ -75,7 +75,7 @@ class ReferenceParser:
         
         References text:
         {text}
-        \"\"\"
+        """
         
         response = self.model.generate_content(prompt)
         

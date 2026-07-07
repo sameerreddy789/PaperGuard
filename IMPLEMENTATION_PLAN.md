@@ -254,13 +254,21 @@ Step 2: VERIFY EXISTENCE for each reference:
      → Fuzzy match title + author names
      → If no close match found → POTENTIALLY FABRICATED 🚨
 
-Step 3: VERIFY CLAIMS (the unique part):
+Step 3: VERIFY CLAIMS (the unique part — with abstract fallback chain):
   → For each in-text citation like "[12]" or "(Smith, 2023)":
      a) Extract the FULL PARAGRAPH containing the citation
         (not just the sentence — academic writing builds
         context over multiple sentences)
-     b) Fetch the abstract of the cited paper (Semantic Scholar)
-     c) Ask LLM: "Read this paragraph from the submitted paper.
+     b) Attempt to get abstract via this fallback chain:
+        i)   Semantic Scholar abstract (covers ~95% of papers)
+        ii)  If abstract is too short/vague → check Semantic Scholar
+             openAccessPdf field for full-text link
+        iii) If not OA → check Unpaywall API (free, 100K req/day)
+             → finds legal OA versions on preprint servers,
+             institutional repos, publisher green OA
+        iv)  If still nothing → mark as PARTIALLY_VERIFIED
+     c) If abstract/content obtained, ask LLM:
+        "Read this paragraph from the submitted paper.
         Focus on the sentence citing [Smith, 2023]. Does the
         abstract of [Smith, 2023] support, contradict, or
         remain unrelated to how it is being used in this
@@ -268,14 +276,21 @@ Step 3: VERIFY CLAIMS (the unique part):
         CANNOT DETERMINE. Explain your reasoning."
 
   NOTE: CrossRef handles existence checks (Step 2).
-  Semantic Scholar is ONLY called here for abstracts.
-  This dramatically reduces Semantic Scholar API calls.
+  Semantic Scholar + Unpaywall handle content retrieval (Step 3).
 
-Step 4: Generate verification report:
-  → ✅ Verified (exists + supports claim)
-  → ⚠️ Exists but claim not supported
-  → ❌ Reference not found (potentially fabricated)
-  → ❓ Could not verify (insufficient data)
+Step 4: Generate 4-tier verification report:
+  → ✅ VERIFIED — paper exists AND abstract/content supports the claim
+  → ⚠️ PARTIALLY VERIFIED — paper exists, but abstract is
+     insufficient to confirm the claim (paywalled, vague abstract)
+  → ❓ EXISTENCE ONLY — DOI resolves, but no content accessible
+     to verify the specific claim being made
+  → ❌ NOT FOUND — DOI returns 404, title search finds nothing
+     → potentially fabricated reference 🚨
+
+  PATTERN SIGNAL: If >50% of a paper's citations are
+  PARTIALLY_VERIFIED or EXISTENCE_ONLY, flag this pattern —
+  heavy reliance on unverifiable sources can itself be a
+  red flag for fabrication.
 ```
 
 **Why This Is Special:**
@@ -342,7 +357,7 @@ Step 4: Generate improvement suggestions
 | **LLM** | Gemini 3.1 Flash Lite (free tier) | 15–30 RPM / 250K–1M TPM free. Cheapest Gemini model, optimized for high-volume tasks |
 | **PDF Parsing** | pymupdf4llm | Layout-aware extraction (handles two-column academic papers correctly) |
 | **Web Framework** | Streamlit | Fastest path to a working web app. Free. Deployed on Streamlit Community Cloud for v1. |
-| **Reference APIs** | CrossRef (primary) + Semantic Scholar (abstracts only) | CrossRef is unlimited. Semantic Scholar only when we need abstract text. |
+| **Reference APIs** | CrossRef (primary) + Semantic Scholar (abstracts) + Unpaywall (OA fallback) | CrossRef is unlimited. Semantic Scholar for abstracts. Unpaywall finds legal OA versions of paywalled papers. |
 | **Web Search** | Serper API | 2,500 free credits/month |
 | **Deployment** | Streamlit Community Cloud (v1) | Free, zero-config. AWS is backup for v2 if we need more power. |
 
@@ -417,6 +432,7 @@ paperguard/
 | | | `semantic_scholar.py` — paper search API |
 | | | `crossref.py` — DOI verification API |
 | | | `serper.py` — web search API |
+| | | `unpaywall.py` — open-access PDF finder |
 | **Caching** | | `cache.py` — file-based JSON cache (key = DOI/title hash, value = API response) |
 | **Shared Models** | `report.py` + `reference.py` — data models | |
 | **Tests** | Sample papers + test harness | API response mocking |
@@ -440,8 +456,10 @@ paperguard/
 **Citation Agent tasks:**
 - DOI/metadata lookup via CrossRef (primary — unlimited)
 - Abstract retrieval via Semantic Scholar (only when needed for claim verification)
+- Unpaywall fallback: find legal OA versions when abstract is insufficient
 - Full-paragraph claim verification (compare paragraph context vs abstract via LLM)
-- AWS Comprehend for entity/keyphrase extraction (optional enhancement)
+- 4-tier classification: VERIFIED / PARTIALLY_VERIFIED / EXISTENCE_ONLY / NOT_FOUND
+- Pattern detection: flag papers with >50% unverifiable citations
 
 **AI Detection Agent tasks (per-section batching):**
 - LLM classifier: one call per academic section (5-7 total) — "Score AI probability 0-100%"
@@ -596,6 +614,7 @@ def analyze_paper(pdf_path: str) -> dict:
 | **Gemini 3.1 Flash Lite** | 15–30 RPM, 250K–1M TPM | All LLM tasks (detection, analysis, classification) | ✅ With batching |
 | **Semantic Scholar** | 1 req/sec (with free key) | Paper search, abstract retrieval | ✅ With caching |
 | **CrossRef** | Unlimited (polite pool) | DOI verification, metadata | ✅ Yes |
+| **Unpaywall** | 100,000 req/day (free, just needs email) | Find legal OA versions of paywalled papers | ✅ More than enough |
 | **Serper** | 2,500 credits/month | Web text matching for plagiarism | ✅ ~40 papers/month |
 | **AWS S3** | 5 GB (12 months) | PDF + report storage | ✅ Yes |
 | **AWS Textract** | 1,000 pages/month (3 months) | Scanned PDF OCR | ✅ If needed |

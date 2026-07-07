@@ -139,6 +139,21 @@ gracefully without API keys.
 
 ---
 
+## Next Session (tomorrow) — planned work
+
+See `IMPLEMENTATION_PLAN.md` → "Pending Work / Next-Session Backlog" for detail.
+
+| # | Item | File(s) | Priority |
+| :--- | :--- | :--- | :---: |
+| A | Streamlit UI (heatmap, citation table, panels, disclaimers, PDF export, caching) | `app.py` | 1 (primary) |
+| B1 | Embedding-based stylometric drift / "Frankenstein" patchwork detection | `agents/detector_agent.py` | 2 |
+| B2 | Re-fit detector calibration (temperature/Platt) on a labelled dev slice | training script | 3 |
+| C | Live CrewAI crew run (needs valid `GEMINI_API_KEY`) | `.env` | 2 |
+| D | Real-paper testing + deployment (HF Inference API for detector on free hosts) | — | 4 |
+| E | Tech debt: migrate `reference_parser` off EOL `google.generativeai`; unify model name | `core/reference_parser.py` | 4 |
+
+---
+
 ## Phase 4 — Streamlit UI (Not Started)
 
 Upload → progress → dashboard (AI heatmap with override reasoning, citation

@@ -53,6 +53,55 @@ Linguistic agent carries AI detection alone.
 Gemini (free tier) by default; the Linguistic agent takes a pluggable LLM
 callable so Qwen (or another backend) can be swapped in without code changes.
 
+### 6. Detector calibration (done)
+The v2.0 model's softmax is saturated (~0% AI on everything). The Detector now
+scores off a logistic calibration of the logit margin (human-ai), which recovers
+the signal: clean AI ~76%, academic AI ~71%, human/ESL ~10%. Constants are
+env-overridable (`PAPERGUARD_DETECTOR_CALIB_MIDPOINT` / `_SCALE`).
+
+---
+
+## Pending Work / Next-Session Backlog
+
+> Current state: the full analysis **engine** is built and validated (Detector +
+> Linguistic + Conflict Resolver + CrewAI orchestrator + CLI), the detector is
+> calibrated, and the repo is synced. The items below are what remains.
+
+### A. Phase 4 — Streamlit UI (`app.py`)  [primary next task]
+- Upload flow (PDF/MD) with per-section progress.
+- Per-paragraph **AI heatmap** using the detector's calibrated per-paragraph
+  scores, highlighting where the Linguistic agent overrode the model.
+- Citation table (4-tier), plagiarism panel, writing-quality panel.
+- Crew executive summary + honest-limitations disclaimer + PDF export.
+- `@st.cache_data` so reloads don't re-run the ~2-minute analysis.
+
+### B. Detector enhancements (make more of the 20-hour model)
+- **B1. Embedding-based stylometric drift / "Frankenstein" patchwork detection.**
+  Use the DistilBERT [CLS]/pooled 768-dim embeddings; compare paragraph
+  embeddings to flag abrupt style shifts (AI text pasted into human text) that a
+  single per-paragraph score misses.
+- **B2. Re-fit calibration on a labelled dev slice** (temperature/Platt scaling)
+  using the cached training datasets, replacing the heuristic midpoint/scale for
+  a research-grade calibration.
+
+### C. Live CrewAI crew run
+- Requires a valid `GEMINI_API_KEY` in `.env`. The crew builds and the engine
+  path is validated; `crew.kickoff()` + the Linguistic agent need a working key.
+
+### D. Phase 5 — Polish & Deploy
+- Test on 10+ real papers incl. two-column IEEE PDFs.
+- **Deployment stack concern:** torch + crewai + chromadb + onnxruntime is heavy
+  for free Streamlit Community Cloud — likely serve the detector via the HF
+  Inference API (instead of local torch) or use a larger host.
+- Rate-limit/retry handling under load; billing alerts.
+
+### E. Tech debt
+- `core/reference_parser.py` uses the EOL `google.generativeai` SDK and pins
+  `gemini-1.5-flash` while `services/gemini.py` uses `gemini-2.5-flash` — unify
+  onto the `google.genai` SDK and one model name.
+- Reference extraction falls back to a weak heuristic ("Unknown Title") without a
+  valid key.
+
 ---
 
 ## How Existing Platforms Work (What We're Learning From)

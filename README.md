@@ -49,6 +49,12 @@ git push origin main
 | **Deployment** | Streamlit Community Cloud (v1) |
 | **Orchestration** | Custom Python orchestrator (no framework) |
 
+### 📚 Training Datasets (AI Detection Model)
+Our AI detection model is locally fine-tuned on a massive aggregation of the following open-source datasets (totaling 125,000+ samples) to ensure robust detection across all frontier LLMs (GPT-4o, LLaMA-3, Claude, Gemini, etc.):
+- [Rajarshi-Roy-research/Defactify_Text_Dataset](https://huggingface.co/datasets/Rajarshi-Roy-research/Defactify_Text_Dataset)
+- [Ateeqq/AI-and-Human-Generated-Text](https://huggingface.co/datasets/Ateeqq/AI-and-Human-Generated-Text)
+*(Note: To save space and bandwidth, the raw dataset files and cached checkpoints are explicitly `.gitignore`'d and are not hosted in this GitHub repository).*
+
 ---
 
 ## 📁 Project Structure

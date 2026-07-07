@@ -4,25 +4,33 @@
 > This is the single source of truth for where the project stands.
 
 **Last Updated:** 2026-07-07
-**Updated By:** monishreddy — Phase 2 (all four agents) implemented and verified
+**Updated By:** merge — @vediumsameer (local model training) + @monishreddy (Phase 2 agents)
+
+---
+
+## 👥 Team Responsibilities
+
+- **@vediumsameer**: Local AI Detection Model Training (Running on local RTX 3050).
+- **@monishreddy**: Everything else (Agent Architecture, API Integrations, Streamlit UI, Qwen Cloud).
 
 ---
 
 ## Overall Progress
 
-| Phase                                              |     Status     | Notes                               |
-| :------------------------------------------------- | :------------: | :---------------------------------- |
-| Phase 1: Core Infrastructure + API Layer + Caching |  ✅ Complete   | Finished core, models, and services |
-| Phase 2: All Agents Working Independently          |  ✅ Complete   | All 4 agents built + verified       |
-| Phase 3: Custom Orchestrator + Conflict Resolution | ⬜ Not Started |                                     |
-| Phase 4: Streamlit UI                              | ⬜ Not Started |                                     |
-| Phase 5: Polish & Deploy                           | ⬜ Not Started |                                     |
+| Phase                                              |    Status    | Notes                                                    |
+| :------------------------------------------------- | :----------: | :------------------------------------------------------- |
+| Phase 1: Core Infrastructure + API Layer + Caching |  ✅ Complete | Finished core, models, and services                      |
+| Phase 1.5: Local Model Training                    | 🟡 In Progress | **@vediumsameer** running multi-dataset aggregation locally |
+| Phase 2: All Agents Working Independently          |  ✅ Complete | **@monishreddy** — all 4 agents built + verified         |
+| Phase 3: Custom Orchestrator + Conflict Resolution | ⬜ Not Started | **@monishreddy**                                        |
+| Phase 4: Streamlit UI                              | ⬜ Not Started | **@monishreddy**                                        |
+| Phase 5: Polish & Deploy                           | ⬜ Not Started | **@monishreddy**                                        |
 
 **Legend:** ✅ Complete | 🟡 In Progress | ⬜ Not Started | ❌ Blocked
 
 ---
 
-## Phase 1: Core Infrastructure + API Layer + Caching
+## Phase 1: Core Infrastructure (Complete)
 
 ### Person 1 Tasks
 
@@ -63,7 +71,17 @@
 
 ---
 
-## Phase 2: All Agents Working Independently
+## Phase 1.5: Local Model Training (Task: @vediumsameer)
+
+| Task                            | File                     | Status | Notes                                            |
+| :------------------------------ | :----------------------- | :----: | :----------------------------------------------- |
+| Defactify & Ateeqq Aggregation  | `train_multi_dataset.py` |   🟡   | Running locally (125k samples)                   |
+| DistilBERT Fine-tuning          | `train_multi_dataset.py` |   ⬜   | Pending dataset aggregation                      |
+| Push to HF Hub                  | `train_multi_dataset.py` |   ⬜   | Target: `vediumsameer/paperguard-ai-detector`    |
+
+---
+
+## Phase 2: All Agents Working Independently (Tasks: @monishreddy)
 
 ### Priority Build Order
 
@@ -100,7 +118,7 @@
 
 ---
 
-## Phase 3: Custom Orchestrator + Conflict Resolution
+## Phase 3: Custom Orchestrator + Conflict Resolution (Tasks: @monishreddy)
 
 | Task                  | File                          | Status | Notes |
 | :-------------------- | :---------------------------- | :----: | :---- |
@@ -117,17 +135,17 @@
 
 ---
 
-## Phase 4: Streamlit UI
+## Phase 4: Streamlit UI (Tasks: @monishreddy)
 
-| Task                        | File     | Status | Notes |
-| :-------------------------- | :------- | :----: | :---- |
-| Upload flow + progress      | `app.py` |   ⬜   |       |
-| Report dashboard            | `app.py` |   ⬜   |       |
-| Citation table view         | `app.py` |   ⬜   |       |
-| AI detection breakdown      | `app.py` |   ⬜   |       |
-| PDF export                  | `app.py` |   ⬜   |       |
-| Disclaimers                 | `app.py` |   ⬜   |       |
-| `@st.cache_data` protection | `app.py` |   ⬜   |       |
+| Task                        | File     | Status | Notes                                    |
+| :-------------------------- | :------- | :----: | :--------------------------------------- |
+| Upload flow + progress      | `app.py` |   ⬜   |                                          |
+| Report dashboard            | `app.py` |   ⬜   |                                          |
+| Citation table view         | `app.py` |   ⬜   |                                          |
+| AI detection breakdown      | `app.py` |   ⬜   | Connects to @vediumsameer's HF model API |
+| PDF export                  | `app.py` |   ⬜   |                                          |
+| Disclaimers                 | `app.py` |   ⬜   |                                          |
+| `@st.cache_data` protection | `app.py` |   ⬜   |                                          |
 
 ### Phase 4 Checkpoint
 
@@ -163,9 +181,10 @@
 
 ## API Keys Status
 
-| API                |   Key Obtained?    | Free Tier Limits                   |
-| :----------------- | :----------------: | :--------------------------------- |
-| Gemini (AI Studio) |         ⬜         | 15–30 RPM, 250K–1M TPM             |
-| Semantic Scholar   |         ⬜         | 1 req/sec (free key)               |
-| CrossRef           | ✅ (no key needed) | Unlimited (polite pool with email) |
-| Serper             |         ⬜         | 2,500 credits/month                |
+| API                |   Key Obtained?    | Free Tier Limits                          |
+| :----------------- | :----------------: | :---------------------------------------- |
+| Gemini (AI Studio) |         ⬜         | 15–30 RPM, 250K–1M TPM                     |
+| Qwen (DashScope)   |         ⬜         | Need to sign up for Hackathon free tier   |
+| Semantic Scholar   |         ⬜         | 1 req/sec (free key)                      |
+| CrossRef           | ✅ (no key needed) | Unlimited (polite pool with email)        |
+| Serper             |         ⬜         | 2,500 credits/month                       |

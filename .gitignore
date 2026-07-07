@@ -35,6 +35,7 @@ venv/
 # Custom
 cache/
 .cache/
+training/
 
 # Local scratch / verification artifacts
 _scratch_*

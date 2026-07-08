@@ -104,8 +104,11 @@ env-overridable (`PAPERGUARD_DETECTOR_CALIB_MIDPOINT` / `_SCALE`).
 - [x] Migrated off the EOL `google.generativeai` SDK to `google-genai`.
   `services/gemini.py` is the single integration point; `reference_parser` now
   routes through it. `requirements.txt` updated. No more deprecation warning.
-- [ ] Reference extraction falls back to a weak heuristic ("Unknown Title")
-  without a valid key.
+- [x] Heuristic reference parser now extracts real title/authors/DOI (APA, IEEE-
+  quoted, numeric styles) instead of "Unknown Title", so citation existence
+  checks work even without an LLM key. Validated on the sample: 3 real refs
+  resolved via CrossRef, the fabricated one correctly flagged NOT_FOUND
+  (citation health 15% -> 45%).
 
 ---
 

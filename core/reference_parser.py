@@ -103,36 +103,70 @@ class ReferenceParser:
 
     def _parse_heuristically(self, text: str) -> List[Reference]:
         """
-        Basic regex/heuristic parsing for references when LLM is unavailable.
-        Assumes each paragraph/newline-separated block is a distinct reference.
+        Regex/heuristic parsing for references when the LLM is unavailable.
+
+        Extracts year, DOI, and a best-effort title + authors from the common
+        citation styles (APA "Authors (YEAR). Title. Venue", IEEE quoted titles,
+        and numeric "Authors. Title. Venue"). A real title/author matters: it
+        lets the Citation Agent do CrossRef/Semantic-Scholar lookups even without
+        an LLM key.
         """
         references = []
-        # Split by double newline or numbered items like "[1]", "1."
-        blocks = re.split(r'\n\n|(?=\n\[\d+\])|\n(?=\d+\.\s)', text)
-        
+        # Split by blank lines or numbered items like "[1]", "1."
+        blocks = re.split(r'\n\s*\n|(?=\n\s*\[\d+\])|\n(?=\d+\.\s)', text)
+
         for block in blocks:
-            block = block.strip()
-            if not block:
+            block = " ".join(block.split())  # collapse internal newlines/whitespace
+            if not block or len(block) < 10:
                 continue
-                
-            # Very basic heuristic extraction
+
             year_match = re.search(r'\b(19\d\d|20\d\d)\b', block)
             year = int(year_match.group(1)) if year_match else None
-            
+
             doi_match = re.search(r'\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)\b', block, re.IGNORECASE)
-            doi = doi_match.group(1) if doi_match else None
-            
-            # Create a placeholder reference
+            doi = doi_match.group(1).rstrip('.') if doi_match else None
+
+            title, authors = self._extract_title_authors(block, year)
+
             ref = Reference(
-                authors=[],
-                title="Unknown Title (Heuristic Parse)",
+                authors=authors,
+                title=title or "Unknown Title (Heuristic Parse)",
                 year=year,
                 doi=doi,
-                raw_text=block
+                raw_text=block,
             )
             references.append(ref)
-            
+
         return references
+
+    @staticmethod
+    def _extract_title_authors(block: str, year: Optional[int]) -> tuple:
+        """Best-effort (title, authors_list) from a single reference string."""
+        # Drop a leading citation marker: "[12] " or "12. "
+        clean = re.sub(r'^\s*\[?\d{1,3}\]?[.)]?\s*', '', block).strip()
+
+        # 1. IEEE style: the title is usually in quotes.
+        q = re.search(r'["“\u201c]([^"”\u201d]{6,})["”\u201d]', clean)
+        if q:
+            title = q.group(1).strip().rstrip('.,')
+            authors = clean[:q.start()].strip().rstrip(',')
+            return title, ([authors] if authors else [])
+
+        # 2. APA style: "Authors (YEAR). Title. Venue"
+        apa = re.search(r'\((?:19|20)\d\d[a-z]?\)\.?\s*(.+?)(?:\.\s|\Z)', clean)
+        if apa:
+            title = apa.group(1).strip().rstrip('.')
+            authors_seg = clean[:apa.start()].strip().rstrip('(').strip().rstrip(',.')
+            return title, ([authors_seg] if authors_seg else [])
+
+        # 3. Numeric/other: "Authors. Title. Venue" -> take the 2nd sentence chunk.
+        chunks = [c.strip() for c in re.split(r'\.\s+', clean) if c.strip()]
+        if len(chunks) >= 2:
+            # If the first chunk looks like authors (has commas/initials), title is next.
+            return chunks[1].rstrip('.'), [chunks[0].rstrip(',.')]
+        if chunks:
+            return chunks[0].rstrip('.'), []
+        return None, []
 
 def main():
     parser = argparse.ArgumentParser(description="Parse references from raw text using Gemini or heuristics.")

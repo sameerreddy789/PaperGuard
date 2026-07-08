@@ -67,13 +67,14 @@ env-overridable (`PAPERGUARD_DETECTOR_CALIB_MIDPOINT` / `_SCALE`).
 > Linguistic + Conflict Resolver + CrewAI orchestrator + CLI), the detector is
 > calibrated, and the repo is synced. The items below are what remains.
 
-### A. Phase 4 — Streamlit UI (`app.py`)  [primary next task]
-- Upload flow (PDF/MD) with per-section progress.
-- Per-paragraph **AI heatmap** using the detector's calibrated per-paragraph
-  scores, highlighting where the Linguistic agent overrode the model.
-- Citation table (4-tier), plagiarism panel, writing-quality panel.
-- Crew executive summary + honest-limitations disclaimer + PDF export.
-- `@st.cache_data` so reloads don't re-run the ~2-minute analysis.
+### A. Phase 4 — Streamlit UI (`app.py`)  [BUILT]
+- [x] Upload flow (PDF/MD/TXT) + `@st.cache_data` (keyed on file bytes + settings).
+- [x] Per-paragraph **AI heatmap** (colour-banded) with safety-net override reasoning.
+- [x] Citation table (4-tier), plagiarism panel, writing-quality panel, references.
+- [x] Crew/engine executive summary + honest-limitations disclaimer + JSON download.
+- [x] Sidebar settings (Gemini/Serper keys, detector model, crew toggle).
+- [ ] PDF export (JSON download done; PDF still pending).
+- [ ] Live browser smoke-test with a real upload (ideally with a valid Gemini key).
 
 ### B. Detector enhancements (make more of the 20-hour model)
 - **B1. Embedding-based stylometric drift / "Frankenstein" patchwork detection.**

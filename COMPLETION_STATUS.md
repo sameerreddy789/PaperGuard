@@ -44,7 +44,7 @@ framing throughout is research-grade, not student-only.
 | Phase 2: Four base agents (standalone) | ✅ Complete | citation / quality / ai_detection / plagiarism |
 | Phase 2.5: AI-Detection Safety Net | ✅ Complete | Detector + Linguistic + Conflict Resolver wired; validated on OOD cases |
 | Phase 3: CrewAI orchestrator + conflict resolution | ✅ Complete | Crew built + engine fallback; end-to-end Report validated (engine path) |
-| Phase 4: Streamlit UI | ⬜ Not Started | Next |
+| Phase 4: Streamlit UI | 🟡 Built | `app.py` boots clean; heatmap/citations/panels render off validated report; PDF export + live browser smoke-test pending |
 | Phase 5: Polish & deploy | ⬜ Not Started | |
 
 **Legend:** ✅ Complete · 🟡 In Progress · ⬜ Not Started · ❌ Blocked
@@ -145,7 +145,7 @@ See `IMPLEMENTATION_PLAN.md` → "Pending Work / Next-Session Backlog" for detai
 
 | # | Item | File(s) | Priority |
 | :--- | :--- | :--- | :---: |
-| A | Streamlit UI (heatmap, citation table, panels, disclaimers, PDF export, caching) | `app.py` | 1 (primary) |
+| A | ~~Streamlit UI (heatmap, citation table, panels, disclaimers, caching)~~ **BUILT** — remaining: PDF export + live browser smoke-test | `app.py` | done |
 | B1 | Embedding-based stylometric drift / "Frankenstein" patchwork detection | `agents/detector_agent.py` | 2 |
 | B2 | Re-fit detector calibration (temperature/Platt) on a labelled dev slice | training script | 3 |
 | C | Live CrewAI crew run (needs valid `GEMINI_API_KEY`) | `.env` | 2 |

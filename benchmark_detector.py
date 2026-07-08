@@ -26,6 +26,7 @@ new weights:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections import defaultdict
@@ -137,6 +138,34 @@ def main() -> None:
             fpr = sum(1 for v in hu_s if v >= t) / len(hu_s) if hu_s else 0
             print(f"  {t:>6}  {rec*100:>9.1f}%  {fpr*100:>9.1f}%  {(rec-fpr):>9.2f}")
         print("  (Best cutoff ~ max Youden J = recall - FPR.)")
+
+        # ---- Dev/test split: pick threshold on dev, REPORT on held-out test ---- #
+        def _bucket(r):
+            h = int(hashlib.sha1((r["text"] or str(id(r))).encode("utf-8", "ignore")).hexdigest(), 16)
+            return "dev" if h % 2 == 0 else "test"
+        dev = [r for r in scored_rows if _bucket(r) == "dev"]
+        test = [r for r in scored_rows if _bucket(r) == "test"]
+
+        def _rf(rowset, t):
+            a = [r["ai_prob"] for r in rowset if r["label"] == "ai"]
+            h = [r["ai_prob"] for r in rowset if r["label"] == "human"]
+            rec = sum(1 for v in a if v >= t) / len(a) if a else 0
+            fpr = sum(1 for v in h if v >= t) / len(h) if h else 0
+            return rec, fpr
+
+        # best Youden threshold chosen ONLY on dev
+        best_t, best_j = 50, -1
+        for t in range(5, 96, 5):
+            rec, fpr = _rf(dev, t)
+            if rec - fpr > best_j:
+                best_j, best_t = rec - fpr, t
+        dev_rec, dev_fpr = _rf(dev, best_t)
+        test_rec, test_fpr = _rf(test, best_t)
+        print("\n=== Dev/test split (threshold chosen on DEV, reported on TEST) ===")
+        print(f"  chosen cutoff (max Youden on dev): {best_t}")
+        print(f"  DEV : recall {dev_rec*100:.1f}%  FPR {dev_fpr*100:.1f}%  (n={len(dev)})")
+        print(f"  TEST: recall {test_rec*100:.1f}%  FPR {test_fpr*100:.1f}%  (n={len(test)})  <- the honest number")
+        print("  (Small n: treat as indicative; wide confidence intervals.)")
     else:
         print("\n[AUC/threshold sweep skipped: need BOTH ai and human samples.]")
 

@@ -1,9 +1,10 @@
 """
-Detector Agent  --  "The Math" half of the AI-detection Safety Net.
+Detector Agent  --  PaperGuard's AI-text detector.
 
 Runs PaperGuard's fine-tuned DistilBERT classifier
 (``vediumsameer/paperguard-ai-detector``, v2.0 mega weights) to score how likely
-a block of text is AI-generated from statistical token patterns alone.
+a block of text is AI-generated from statistical token patterns alone. This is
+the sole AI-detection signal (no LLM is used for detection).
 
 Important: the model's softmax is *saturated* (overconfident) -- it reports ~0%
 AI even on genuine AI text, so the softmax alone is unusable. The real signal
@@ -14,15 +15,15 @@ section below). After calibration the detector correctly flags clean and
 academic AI (~70-90%) while keeping human text low (~10%).
 
 The one remaining blind spot is slang / style-masked AI (an LLM told to write
-casually), which can still read as human. That case is caught downstream by the
-Linguistic Agent + Conflict Resolver -- the whole point of the "safety net".
+casually), which can still read as human. Embedding-based stylometric patchwork
+detection (in ``agents.ai_detection``) partially mitigates this when such text
+is pasted into otherwise-human writing.
 
 Label convention (from the model config): index 0 == "ai", index 1 == "human".
 
 Heavy deps (torch/transformers) and the model itself are loaded lazily and
 cached at module level. If they are unavailable, the agent degrades gracefully:
-``enabled`` becomes False and every score is ``None`` so the orchestrator can
-fall back to the Linguistic Agent alone.
+``enabled`` becomes False and every score is ``None``.
 
 CLI:  python -m agents.detector_agent path/to/paper.(pdf|md|txt)
 """
@@ -337,8 +338,8 @@ class DetectorAgent(BaseAgent):
             },
             "disclaimer": (
                 "Statistical classifier. Slang/style-masked AI can still evade it "
-                "(a known blind spot); paired with the Linguistic Agent and "
-                "Conflict Resolver to correct such cases."
+                "(a known blind spot); embedding-based patchwork detection helps "
+                "when such text is mixed into human writing."
             ),
             "paragraphs": para_scores,
         }

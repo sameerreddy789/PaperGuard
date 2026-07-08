@@ -12,14 +12,13 @@
 
 Existing tools each solve one slice of the problem and none verify whether a
 citation actually supports the claim it is attached to. PaperGuard combines four
-verification concerns into one coordinated multi-agent pipeline, and adds a
-self-correcting "safety net" for AI detection so a single brittle model never
-gets the last word.
+verification concerns into one coordinated multi-agent pipeline, powered by a
+purpose-trained AI-detection model plus embedding-based stylometry.
 
 | Capability | Turnitin | GPTZero | **PaperGuard** |
 |:---|:---:|:---:|:---:|
 | Plagiarism detection | Yes (proprietary DB) | No | Yes (open sources) |
-| AI-content detection | Yes | Yes | Yes (model + LLM safety net) |
+| AI-content detection | Yes | Yes | Yes (own trained model + stylometry) |
 | Citation existence check | No | No | Yes |
 | **Citation claim verification** | No | No | **Yes (headline feature)** |
 | Writing-quality analysis | No | No | Yes |
@@ -31,34 +30,30 @@ mainstream tool does this.
 
 ---
 
-## The AI-Detection Safety Net
+## AI Detection
 
-Raw statistical detectors are brittle. Our fine-tuned classifier
+AI detection is done entirely by our own fine-tuned model
 ([`vediumsameer/paperguard-ai-detector`](https://huggingface.co/vediumsameer/paperguard-ai-detector),
-v2.0) can suffer *mode collapse* — over-flagging rigid non-native (ESL) writing
-as AI, or being fooled into "100% human" by style-masked AI text. Instead of
-trusting it blindly, we wrap it in a cognitive safety net:
+DistilBERT, v2.0) — no LLM is used for detection. Two techniques make it robust:
 
-```
-                 per paragraph
-                      │
-        ┌─────────────┴─────────────┐
-        ▼                           ▼
-  Detector Agent              Linguistic Agent
-  (PyTorch model,             (LLM reads tone,
-   pure statistics)            structure, intent)
-        │                           │
-        └─────────────┬─────────────┘
-                      ▼
-              Conflict Resolver
-   • Agree           → keep score, highlight paragraph
-   • Model ~100% Human + LLM high AI  → override (style-masked AI caught)
-   • Model ~100% AI  + LLM low AI     → override (ESL false-positive cleared)
-   • Otherwise disagree               → weighted 40/60 consensus (favour context)
-```
+1. **Calibrated logit margin.** The model's raw softmax is *saturated* (it
+   reports ~0% AI even on real AI text). The discriminative signal actually
+   lives in the logit margin (human − ai), which cleanly separates clean/
+   academic AI (~6–8) from human text (~16–18). We score off a logistic
+   calibration of that margin, so the detector correctly flags clean/academic AI
+   (~70–90%) while keeping human text low (~10%).
+2. **Stylometric patchwork detection.** Paragraph embeddings from the same model
+   are compared against the document's overall style; paragraphs that deviate
+   strongly (robust median/MAD outliers) are flagged as possible mixed
+   authorship — "Frankenstein" AI text pasted into human writing.
 
-The result is a per-paragraph AI heatmap with a transparent, defensible verdict
-— and reasoning attached wherever the LLM overrides the model.
+The result is a per-paragraph AI heatmap plus patchwork flags. Known blind spot:
+slang/style-masked AI can still read as human to the model; the patchwork check
+partially mitigates this when such text is mixed into human writing.
+
+> Gemini/LLMs are **not** used for AI detection — only for agent orchestration
+> and the other tasks (citation claim checks, quality review, plagiarism
+> similarity, reference parsing).
 
 ---
 
@@ -72,10 +67,10 @@ inference, math). The LLM handles reasoning, synthesis, and conflict resolution
 | Agent | Role | Tools it uses |
 |:---|:---|:---|
 | Citation Verifier | Existence + claim support (4-tier) | CrossRef, Semantic Scholar, LLM claim check |
-| AI-Detection (Detector + Linguistic) | Per-paragraph AI likelihood + safety net | PyTorch model, LLM, burstiness math |
+| AI-Detection Analyst | Per-paragraph AI likelihood + patchwork | Fine-tuned detector model, embeddings (no LLM) |
 | Plagiarism Checker | Overlap with open web + scholarly sources | Serper, CrossRef, Semantic Scholar, LLM similarity |
 | Writing-Quality Reviewer | Structure, readability, prose | Readability math, LLM prose review |
-| Orchestrator / Conflict Resolver | Coordinates agents, resolves cross-agent conflicts, builds the report | — |
+| Orchestrator / Editor | Coordinates agents, resolves cross-agent conflicts, builds the report | LLM synthesis |
 
 ---
 
@@ -122,17 +117,17 @@ paperguard/
 ├── agents/                    # Verification agents + orchestration
 │   ├── base.py                # shared BaseAgent + CLI harness
 │   ├── citation_agent.py      # citation existence + claim verification
-│   ├── detector_agent.py      # PyTorch AI classifier (the "math")
-│   ├── linguistic_agent.py    # LLM contextual AI analyst (the "brain")
-│   ├── conflict_resolver.py   # AI-detection safety net logic
-│   ├── ai_detection_agent.py  # burstiness signal (feeds the resolver)
+│   ├── detector_agent.py      # fine-tuned AI detector (calibrated margin + embeddings)
+│   ├── ai_detection.py        # model-only AI-detection engine (heatmap + patchwork)
 │   ├── plagiarism_agent.py    # open-source overlap detection
 │   ├── quality_agent.py       # writing-quality assessment
-│   └── orchestrator.py        # CrewAI crew (planned)
+│   ├── crew_tools.py          # deterministic logic wrapped as CrewAI tools
+│   └── orchestrator.py        # CrewAI crew (specialists + editor) + engine fallback
 │
 ├── models/                    # Pydantic data models (report, reference)
 ├── tests/                     # Sample papers + tests
 ├── train_mega_dataset.py      # Detector training pipeline (reference)
+├── fit_calibration.py         # Re-fit the detector's margin calibration
 ├── ood_stress_test.py         # Out-of-distribution validation gauntlet
 │
 ├── IMPLEMENTATION_PLAN.md      # Technical plan (see Architecture Update at top)

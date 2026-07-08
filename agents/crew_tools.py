@@ -61,18 +61,18 @@ def _store(name: str, payload: Dict[str, Any]) -> None:
 # Core implementations (usable with or without CrewAI installed)
 # --------------------------------------------------------------------------- #
 def _run_ai_detection() -> Dict[str, Any]:
-    from agents.safety_net import run_safety_net
-    result = run_safety_net(_CONTEXT["text"] or "")
-    _store("AIDetectionSafetyNet", result)
+    from agents.ai_detection import run_ai_detection
+    result = run_ai_detection(_CONTEXT["text"] or "")
+    _store("AIDetection", result)
+    stylo = result.get("stylometry") or {}
     # Return a compact summary for the LLM (omit the full heatmap to save tokens).
     return {
         "overall_ai_score": result.get("overall_ai_score"),
         "classification": result.get("classification"),
         "paragraphs_analyzed": result.get("paragraphs_analyzed"),
-        "conflicts_detected": result.get("conflicts_detected"),
-        "overrides_applied": result.get("overrides_applied"),
-        "safety_net_active": result.get("safety_net_active"),
         "flagged_paragraphs": result.get("flagged_paragraphs"),
+        "patchwork_outliers": stylo.get("outlier_count"),
+        "style_cohesion": stylo.get("style_cohesion"),
         "components": result.get("components"),
     }
 
@@ -143,12 +143,13 @@ def build_crewai_tools():
     except Exception:
         return None
 
-    @tool("AI Detection Safety Net")
+    @tool("AI Detection")
     def ai_detection_tool() -> str:
-        """Run the AI-detection safety net (PyTorch detector + LLM linguistic
-        analysis + conflict resolver) over the current paper. Returns a JSON
-        summary with the overall AI score, classification, and how many
-        paragraph-level conflicts were resolved."""
+        """Run model-based AI detection (the fine-tuned PaperGuard DistilBERT
+        detector, calibrated) plus embedding-based stylometric patchwork
+        detection over the current paper. Returns a JSON summary with the overall
+        AI score, classification, flagged paragraphs, and any style-outlier
+        (possible mixed-authorship) paragraphs."""
         return json.dumps(_run_ai_detection(), ensure_ascii=False)
 
     @tool("Citation Verifier")

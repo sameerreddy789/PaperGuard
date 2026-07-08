@@ -2,8 +2,8 @@
 
 > **UPDATE THIS FILE BEFORE EVERY PUSH.** Single source of truth for project state.
 
-**Last Updated:** 2026-07-07
-**Updated By:** Safety Net wired + validated; CrewAI orchestrator + tools + CLI built; env consolidated (.venv)
+**Last Updated:** 2026-07-08
+**Updated By:** AI detection is now model-only (LLM safety net removed); Gemini reserved for orchestration + citation/quality/plagiarism/reference tasks
 
 ---
 
@@ -27,8 +27,9 @@ framing throughout is research-grade, not student-only.
    "custom orchestrator, no framework" note in `IMPLEMENTATION_PLAN.md`.
    Deterministic work (API lookups, PyTorch inference, math) stays as tools;
    the LLM does reasoning/synthesis/conflict-resolution only.
-2. **AI-Detection Safety Net.** PyTorch Detector (math) + LLM Linguistic agent
-   (context) → Conflict Resolver overrides the model's mode-collapse mistakes.
+2. **AI detection = model-only.** The calibrated PaperGuard detector + embedding
+   stylometry do AI detection; no LLM is used for it. (The former Detector +
+   Linguistic + Conflict Resolver "safety net" was removed.)
 3. **Detector model** = `vediumsameer/paperguard-ai-detector` (v2.0 mega
    weights), loaded locally via `transformers`. Label index 0 = AI, 1 = Human.
 4. **Reasoning LLM** = Gemini (free tier), pluggable so Qwen can drop in later.
@@ -42,7 +43,7 @@ framing throughout is research-grade, not student-only.
 | Phase 1: Core + services + caching | ✅ Complete | pdf/text/reference + CrossRef/S2/Serper/Gemini + cache |
 | Phase 1.5: Local AI-detection model | ✅ Complete | v2.0 mega model trained + on HF Hub |
 | Phase 2: Four base agents (standalone) | ✅ Complete | citation / quality / ai_detection / plagiarism |
-| Phase 2.5: AI-Detection Safety Net | ✅ Complete | Detector + Linguistic + Conflict Resolver wired; validated on OOD cases |
+| Phase 2.5: AI detection (model-only) | ✅ Complete | Calibrated detector + embedding patchwork; LLM safety net removed |
 | Phase 3: CrewAI orchestrator + conflict resolution | ✅ Complete | Crew built + engine fallback; end-to-end Report validated (engine path) |
 | Phase 4: Streamlit UI | ✅ Built | `app.py`: heatmap (+patchwork), citations, panels, PDF/JSON export; only live browser smoke-test remains |
 | Phase 5: Polish & deploy | ⬜ Not Started | |
@@ -72,7 +73,7 @@ framing throughout is research-grade, not student-only.
 | Multi/mega-dataset training pipeline | `train_mega_dataset.py` | ✅ | Opus distill + Ateeqq + AI-text-detection-pile |
 | Fine-tuned DistilBERT (v2.0) | — | ✅ | eval_loss ~0.0003 |
 | Push to HF Hub | — | ✅ | `vediumsameer/paperguard-ai-detector` |
-| OOD validation gauntlet | `ood_stress_test.py` | ✅ | Exposed mode collapse → motivated the Safety Net |
+| OOD validation gauntlet | `ood_stress_test.py` | ✅ | Exposed softmax saturation → motivated the logit-margin calibration |
 
 > The OOD stress test showed the raw model collapses on ESL and style-masked
 > text. This is the reason the Detector is paired with the Linguistic agent.
@@ -85,8 +86,10 @@ framing throughout is research-grade, not student-only.
 | :--- | :--- | :---: |
 | Citation Verification (existence + claim, 4-tier) | `agents/citation_agent.py` | ✅ |
 | Writing Quality (structure + readability + prose) | `agents/quality_agent.py` | ✅ |
-| AI Detection (LLM classifier + burstiness) | `agents/ai_detection_agent.py` | ✅ |
 | Plagiarism (Serper + scholarly + LLM similarity) | `agents/plagiarism_agent.py` | ✅ |
+
+> Note: the old standalone `ai_detection_agent.py` (LLM classifier + burstiness)
+> was removed — AI detection now lives in the model-only engine (Phase 2.5).
 
 Shared foundation: `agents/base.py` (lazy imports, `.pdf/.md/.txt` loading,
 section/reference helpers, `BaseAgent`, `run_cli`). All agents degrade
@@ -94,28 +97,30 @@ gracefully without API keys.
 
 ---
 
-## Phase 2.5 — AI-Detection Safety Net (In Progress)
+## Phase 2.5 — AI Detection (model-only)
 
 | Component | File | Status | Notes |
 | :--- | :--- | :---: | :--- |
-| Detector Agent (PyTorch, per-paragraph) | `agents/detector_agent.py` | ✅ | Lazy model load, graceful degradation |
-| Linguistic Agent (LLM, per-paragraph) | `agents/linguistic_agent.py` | ✅ | Uses shared `LINGUISTIC_AGENT_PROMPT`; pluggable LLM |
-| Conflict Resolver (scenarios A/B/C) | `agents/conflict_resolver.py` | ✅ | None-safe; per-paragraph batch + heatmap + document rollup |
-| Safety-net runner (per-paragraph verdict + heatmap) | `agents/safety_net.py` | ✅ | Ties detector+linguistic+resolver over a document |
-| Stylometric patchwork detection (embeddings) | `agents/detector_agent.py`, `agents/safety_net.py` | ✅ | Flags "Frankenstein" mixed-authorship paragraphs via embedding outliers |
+| Detector (calibrated logit margin) | `agents/detector_agent.py` | ✅ | Lazy model load, graceful degradation, `embed_text` for stylometry |
+| AI-detection engine (heatmap + patchwork) | `agents/ai_detection.py` | ✅ | Model-only; per-paragraph heatmap + document verdict |
+| Stylometric patchwork detection (embeddings) | `agents/ai_detection.py` | ✅ | Flags "Frankenstein" mixed-authorship paragraphs via robust median/MAD embedding outliers |
 
-> **Detector salvaged via logit-margin calibration.** The v2.0 model's *softmax*
-> is saturated (reports ~0% AI even on real AI text), but the raw logit margin
-> (human-ai) still separates classes: clean/academic AI ~6-8, human ~16-18. The
-> Detector now scores off a logistic calibration of that margin instead of the
-> softmax. Result: it correctly flags clean AI ~76% and academic AI ~71% while
-> keeping human/ESL text ~10% (previously 0% for everything). The "math" agent
-> now contributes real signal. Calibration constants are heuristic (env-overridable)
-> and should ideally be fit on a labelled dev set for a research-grade release.
+> **Decision (2026-07-08): LLM safety net removed.** Since the calibrated model
+> is a reliable signal on its own, AI detection no longer uses an LLM. The
+> Detector + Linguistic + Conflict Resolver design (and `linguistic_agent.py`,
+> `conflict_resolver.py`, `ai_detection_agent.py`) were deleted. Gemini is now
+> used only for orchestration and the other tasks.
 >
-> **Remaining blind spot:** slang/style-masked AI can still read as human from
-> the model alone — this is exactly what the Linguistic agent + Conflict Resolver
-> override (`logit_saturation` scenario) catches, which was validated on the OOD cases.
+> **Detector via logit-margin calibration.** The v2.0 model's *softmax* is
+> saturated (reports ~0% AI even on real AI text), but the raw logit margin
+> (human-ai) separates classes: clean/academic AI ~6-8, human ~16-18. Scoring off
+> a logistic calibration of that margin flags clean AI ~76% and academic AI ~71%
+> while keeping human/ESL text ~10%. Constants are env-overridable; `fit_calibration.py`
+> re-fits them on a labelled set.
+>
+> **Remaining blind spot:** slang/style-masked AI can still read as human to the
+> model. The embedding patchwork check partially mitigates this when such text is
+> pasted into otherwise-human writing.
 
 ---
 

@@ -28,20 +28,22 @@ the earlier "custom orchestrator, no framework" decision). Design rules:
   conflict resolution. This keeps results trustworthy and reproducible.
 - A coordinating agent/task assembles the final `models.report.Report`.
 
-### 3. AI-Detection Safety Net (replaces the single AI-Detection agent design)
-AI detection is a two-agent society with a resolver, run per paragraph:
-- **Detector Agent** (`agents/detector_agent.py`) — the fine-tuned PyTorch
-  model `vediumsameer/paperguard-ai-detector` (v2.0). Pure statistics. Fast but
-  prone to mode collapse (ESL false-positives; "100% human" on style-masked AI).
-- **Linguistic Agent** (`agents/linguistic_agent.py`) — an LLM reads tone,
-  structure, and intent to catch the Detector's blind spots.
-- **Conflict Resolver** (`agents/conflict_resolver.py`) — when the two diverge
-  by >30, it overrides: adopt the LLM verdict on logit-saturation (model≈human,
-  LLM=AI) or ESL false-positive (model=AI, LLM=human); otherwise a 40/60
-  weighted consensus favouring context. Burstiness (`ai_detection_agent.py`)
-  feeds the resolver as a tie-breaker.
+### 3. AI Detection = model-only (LLM safety net REMOVED)
+AI detection is performed entirely by the fine-tuned model — **no LLM** is used
+for detection (decision: the calibrated model is trustworthy on its own, and we
+reserve Gemini for orchestration + the other tasks). Engine: `agents/ai_detection.py`.
+- **Detector** (`agents/detector_agent.py`) — the fine-tuned model
+  `vediumsameer/paperguard-ai-detector` (v2.0), scored via a **calibrated logit
+  margin** (the raw softmax is saturated). Correctly flags clean/academic AI
+  (~70–90%) and keeps human text low (~10%).
+- **Stylometric patchwork detection** — paragraph embeddings from the same model
+  vs. the document centroid (robust median/MAD outliers) flag possible mixed
+  authorship (AI pasted into human writing).
 
-Output: a per-paragraph AI heatmap with reasoning attached on every override.
+Output: a per-paragraph AI heatmap + patchwork flags. Known blind spot:
+slang/style-masked AI can still read as human (partially mitigated by patchwork).
+The former Detector+Linguistic+ConflictResolver "safety net" was removed along
+with `linguistic_agent.py`, `conflict_resolver.py`, and `ai_detection_agent.py`.
 
 ### 4. Detector model details
 `transformers` loads the model locally (auto-download + cache). Label index

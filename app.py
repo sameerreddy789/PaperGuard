@@ -88,9 +88,9 @@ def report_source_text(path: str) -> str:
 
 
 def _full_paragraphs(text: str) -> Dict[int, str]:
-    """Map paragraph_index -> full paragraph text, matching the safety-net selection."""
+    """Map paragraph_index -> full paragraph text, matching the detector selection."""
     try:
-        from agents.safety_net import _select_paragraphs
+        from agents.ai_detection import _select_paragraphs
         paras = _select_paragraphs(text, None)
         return {i: p for i, (_sec, p) in enumerate(paras, start=1)}
     except Exception:
@@ -120,7 +120,7 @@ def _fmt(v: Any, suffix: str = "") -> str:
 # Renderers
 # --------------------------------------------------------------------------- #
 def render_metrics(report: Dict[str, Any]) -> None:
-    ai = _meta(report, "AIDetectionSafetyNet")
+    ai = _meta(report, "AIDetection")
     cite = _meta(report, "CitationAgent")
     plag = _meta(report, "PlagiarismAgent")
     qual = _meta(report, "QualityAgent")
@@ -136,7 +136,7 @@ def render_metrics(report: Dict[str, Any]) -> None:
 
 
 def render_heatmap(report: Dict[str, Any]) -> None:
-    ai = _meta(report, "AIDetectionSafetyNet")
+    ai = _meta(report, "AIDetection")
     heatmap: List[Dict[str, Any]] = ai.get("heatmap") or []
     comp = ai.get("components") or {}
 
@@ -150,16 +150,10 @@ def render_heatmap(report: Dict[str, Any]) -> None:
     )
     st.caption(
         f"Detector: {'on' if comp.get('detector_available') else 'off'} · "
-        f"Linguistic (LLM): {'on' if comp.get('linguistic_available') else 'off'} · "
-        f"Safety net: {'ACTIVE' if ai.get('safety_net_active') else 'inactive'} · "
-        f"Overrides applied: {ai.get('overrides_applied', 0)}"
+        f"model: {comp.get('detector_model', 'n/a')} (calibrated logit margin)"
     )
-    if not comp.get("linguistic_available"):
-        st.warning(
-            "Linguistic agent is off (no valid GEMINI_API_KEY). AI detection is "
-            "running on the calibrated model alone, without the LLM safety net.",
-            icon=None,
-        )
+    if not comp.get("detector_available"):
+        st.warning("Detector model unavailable; AI scores could not be computed.", icon=None)
 
     # Stylometric patchwork ("Frankenstein") signal.
     stylo = ai.get("stylometry") or {}
@@ -190,18 +184,9 @@ def render_heatmap(report: Dict[str, Any]) -> None:
         score = entry.get("final_ai_score")
         idx = entry.get("paragraph_index")
         body = fulltext.get(idx) or entry.get("text_preview") or ""
-        det = entry.get("detector_score")
-        lin = entry.get("linguistic_score")
-
         note = ""
-        if entry.get("conflict_detected"):
-            ov = entry.get("override_type") or "compromise"
-            note = (
-                f'<div class="pg-note">Safety-net override [{ov}] &mdash; '
-                f'model {det}% vs context {lin}%. {entry.get("reasoning", "")}</div>'
-            )
         if idx in patch_idx:
-            note += (
+            note = (
                 '<div class="pg-note" style="background:#FEF2F2;color:#991B1B;">'
                 'Stylometric outlier &mdash; possible different author (patchwork).</div>'
             )
@@ -297,7 +282,7 @@ def build_pdf(report: Dict[str, Any]) -> bytes:
     body = ParagraphStyle("pg_body", parent=ss["BodyText"], fontSize=9.5, leading=14, alignment=TA_LEFT)
     small = ParagraphStyle("pg_small", parent=ss["BodyText"], fontSize=8, textColor=colors.HexColor("#64748B"))
 
-    ai = _meta(report, "AIDetectionSafetyNet")
+    ai = _meta(report, "AIDetection")
     cite = _meta(report, "CitationAgent")
     plag = _meta(report, "PlagiarismAgent")
     qual = _meta(report, "QualityAgent")
@@ -340,7 +325,7 @@ def build_pdf(report: Dict[str, Any]) -> bytes:
 
     # Per-agent findings
     for name, label in [
-        ("AIDetectionSafetyNet", "AI Detection"),
+        ("AIDetection", "AI Detection"),
         ("CitationAgent", "Citations"),
         ("PlagiarismAgent", "Plagiarism"),
         ("QualityAgent", "Writing Quality"),

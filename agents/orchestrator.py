@@ -102,8 +102,8 @@ def _run_crew() -> Optional[str]:
         )
         ai_agent = Agent(
             role="AI-Text Forensics Analyst",
-            goal="Judge how much of the paper is AI-generated, correcting the raw model's blind spots.",
-            backstory="An expert who never trusts a single classifier and reasons about tone, structure, and intent.",
+            goal="Report how much of the paper is AI-generated using the model detector and flag style patchwork.",
+            backstory="An analyst who interprets the fine-tuned detector's per-paragraph scores and stylometric signals.",
             tools=[tools["ai_detection"]], llm=llm, verbose=False, allow_delegation=False,
         )
         plagiarism_agent = Agent(
@@ -136,10 +136,11 @@ def _run_crew() -> Optional[str]:
             citation_agent,
         )
         t_ai = _mk_task(
-            "Use your tool to run the AI-detection safety net. Report the overall AI "
-            "score, whether the safety net was active, and how many conflicts between "
-            "the raw model and contextual analysis were overridden (and why that matters).",
-            "A short paragraph on AI-generation likelihood, noting any model over-rides.",
+            "Use your tool to run model-based AI detection. Report the overall AI "
+            "score and classification, which paragraphs are flagged as likely-AI, and "
+            "any stylometric-patchwork paragraphs (possible AI text pasted into human "
+            "writing). Note the model's known blind spot: slang/style-masked AI.",
+            "A short paragraph on AI-generation likelihood with flagged/patchwork paragraphs.",
             ai_agent,
         )
         t_plag = _mk_task(
@@ -193,26 +194,27 @@ def _build_report(
 ) -> Report:
     agent_results: List[AgentResult] = []
 
-    # AI-detection safety net -> AgentResult
-    ai = results.get("AIDetectionSafetyNet")
+    # AI detection (model-based) -> AgentResult
+    ai = results.get("AIDetection")
     if ai is not None:
         overall = ai.get("overall_ai_score")
         status = "warning" if (overall is not None and overall >= _LIKELY_AI) else "passed"
         findings = [
             f"Overall AI-content score: {overall}% ({ai.get('classification')})."
-            if overall is not None else "AI score could not be computed.",
+            if overall is not None else "AI score could not be computed (detector unavailable).",
         ]
-        if ai.get("overrides_applied"):
+        flagged = ai.get("flagged_paragraphs") or []
+        if flagged:
+            findings.append(f"Paragraph(s) flagged as likely-AI: {', '.join(map(str, flagged))}.")
+        stylo = ai.get("stylometry") or {}
+        if stylo.get("outlier_count"):
+            idxs = ", ".join(str(o.get("paragraph_index")) for o in stylo.get("outliers", []))
             findings.append(
-                f"Safety net overrode the raw model on {ai['overrides_applied']} "
-                f"paragraph(s) (mode-collapse corrections)."
-            )
-        if not ai.get("safety_net_active"):
-            findings.append(
-                "Safety net inactive (only one detection signal available) - lower confidence."
+                f"Stylometric patchwork: paragraph(s) {idxs} deviate in style "
+                f"(possible mixed authorship / pasted AI)."
             )
         agent_results.append(AgentResult(
-            agent_name="AIDetectionSafetyNet", status=status, findings=findings, metadata=ai,
+            agent_name="AIDetection", status=status, findings=findings, metadata=ai,
         ))
 
     # The other agents already stored full AgentResult dumps.
@@ -237,7 +239,7 @@ def _build_report(
 def _cross_agent_conflicts(results: Dict[str, Any]) -> List[str]:
     """Deterministic cross-agent conflict/consistency notes (from the plan)."""
     notes: List[str] = []
-    ai = results.get("AIDetectionSafetyNet") or {}
+    ai = results.get("AIDetection") or {}
     quality = (results.get("QualityAgent") or {}).get("metadata", {})
     plag = (results.get("PlagiarismAgent") or {}).get("metadata", {})
     citation = (results.get("CitationAgent") or {}).get("metadata", {})
@@ -267,7 +269,7 @@ def _cross_agent_conflicts(results: Dict[str, Any]) -> List[str]:
 
 
 def _fallback_summary(results: Dict[str, Any], conflict_notes: List[str]) -> str:
-    ai = results.get("AIDetectionSafetyNet") or {}
+    ai = results.get("AIDetection") or {}
     citation = (results.get("CitationAgent") or {}).get("metadata", {})
     plag = (results.get("PlagiarismAgent") or {}).get("metadata", {})
     quality = (results.get("QualityAgent") or {}).get("metadata", {})

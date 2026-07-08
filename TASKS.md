@@ -8,6 +8,9 @@
 outputs — an **AI-writing %** and a **Similarity/plagiarism %** — at comparable
 accuracy, and add our differentiator: **citation claim verification**.
 
+**Owners:** model training → **@sameerreddy** · everything else (agents, UI,
+plagiarism, deployment, docs) → **@technical-monish**.
+
 ---
 
 ## Snapshot (where we are)
@@ -29,39 +32,54 @@ accuracy, and add our differentiator: **citation claim verification**.
 
 ---
 
-## Should we train more? YES — one focused run (maybe two)
+## Model Training — v2.1  (Owner: @sameerreddy)
 
-Not "more easy data" — the model already maxes easy data. The goal is
-**generalization** and closing the **slang/style-masked AI blind spot**.
-Success metric shifts from "low loss on the pile" to **accuracy + low false-
-positive-rate on held-out models and adversarial text**.
+### Verdict on "train with 10M docs?"
+**No — not worth it.** DistilBERT (66M params) converges early; the extra ~9.75M
+docs are mostly redundant *easy* samples we already saturate on, so accuracy gains
+are marginal. And 11+ days at 100% on an RTX 3050 is a real thermal/stability risk.
+For detection, **diversity + difficulty beat raw volume** (RAID/M4GT literature).
 
-### Recommended datasets (all HuggingFace-loadable)
+### How many MORE quality docs to add
+Sweet spot: add **~250k–500k NEW curated hard/diverse docs** on top of the current
+~261k → a **~500k–750k total pool**. Beyond ~750k a 66M DistilBERT plateaus; more
+data won't move the needle. (For a bigger jump, swap the base to
+`microsoft/deberta-v3-base` or `roberta-base` — stronger, but more compute.)
 
-| Dataset | Why it helps |
-|:---|:---|
-| `liamdugan/raid` (10M+ docs, 11 LLMs, 11 genres, **12 adversarial attacks**) | Paraphrase/synonym/homoglyph/whitespace attacks — the direct fix for masked-AI evasion. Use a balanced adversarial subset. |
-| M4GT / SemEval-2024 Task 8 (M4) | Multi-model, multi-domain; **subtask C = mixed human-machine** → trains the patchwork signal. |
-| DeepSeek-R1 / reasoning CoT sets (R1-distill, OpenThoughts) | Reasoning-model outputs, so we detect o1 / R1 / Claude-thinking style text. |
-| `Ateeqq/AI-and-Human-Generated-Text` (keep) | Academic prose → keeps ESL/false-positive rate down. |
-| Comprehensive Human-vs-AI (arXiv 2510.22874) | Hard set (≈58% baseline) → good generalization test set. |
+### Curated ~500k pool (balanced ~50/50 AI/human, all HF-loadable)
 
-### Training plan (RTX 3050 ≈ 13h per 250k×2ep, or Alibaba PAI GPU)
+| Slice | Size | Why |
+|:---|:---:|:---|
+| `liamdugan/raid` (multi-model + **12 adversarial attacks**) | ~150k | Robustness to masked/paraphrased AI (the current blind spot) |
+| M4GT / SemEval-2024 Task 8 (incl. mixed human-machine) | ~100k | Multi-domain/model + patchwork signal |
+| DeepSeek-R1 / reasoning CoT sets (+ matched human) | ~50k | Detect o1 / R1 / Claude-thinking style |
+| `Ateeqq` + arXiv human academic | ~100k | Keep ESL / false-positive rate low |
+| Retained from current pile | ~100k | Stability / guard against catastrophic forgetting |
 
-1. Curate a balanced **hard** mix (~200–300k): RAID-adversarial subset + M4GT
-   mixed + CoT/reasoning + Ateeqq academic + balanced human.
-2. Continue-train from v2.0 (or restart from `distilbert-base-cased`), 2–3
-   epochs, lr 1–2e-5, fp16, class-balanced.
-3. Evaluate on **held-out RAID adversarial + unseen models**; report Accuracy +
-   FPR. Add proper metrics (accuracy/F1/AUC) to the training script.
-4. Re-fit calibration with `fit_calibration.py` on the new held-out set; push
-   **v2.1** to HF and update the model card.
+### Training schedule (RTX 3050 — "1 epoch ≈ 150k")
+1. Cap each epoch to **~150k** (subsample the 500k pool per epoch) → ~8h/epoch, safe thermals.
+2. **2–3 epochs** (rotate subsamples), lr 1–2e-5, fp16, class-balanced, weight_decay 0.01.
+3. Continue-train from v2.0 first (faster); fall back to `distilbert-base-cased` if it won't budge.
+4. **Add real metrics** — accuracy / F1 / AUC / **FPR on a HELD-OUT set** (unseen
+   models + adversarial). This is the success gauge, NOT `eval_loss`.
+5. Re-fit calibration with `fit_calibration.py` on the new held-out set; push
+   **v2.1** to HF and **update the (stale v1.5) model card**.
 
-Feasible in the runway: 1 run comfortably, 2 if curation is quick.
+### Expected outcome (set expectations)
+- Easy-text accuracy stays ~99% (already saturated — won't visibly improve).
+- Real wins: **much lower false positives on human/ESL** and **much better recall
+  on adversarial / masked / reasoning AI** — i.e. we fix the blind spot, not a
+  vanity metric. Frame the demo around robustness, not raw accuracy.
+
+### Tasks (@sameerreddy)
+- [ ] Build the curation script (merge + balance + dedup the 5 slices → ~500k pool).
+- [ ] Add held-out eval set (unseen models + RAID adversarial) + metrics to the trainer.
+- [ ] Run 2–3 epochs @150k; log accuracy/F1/AUC/FPR per epoch.
+- [ ] Re-fit calibration; push v2.1 to HF; update model card.
 
 ---
 
-## Other layers (detector is our strength; lift the rest toward Turnitin)
+## Other layers (detector is our strength; lift the rest toward Turnitin)  (Owner: @technical-monish)
 
 ### Plagiarism — highest priority for Turnitin parity
 - [ ] Deterministic **verbatim overlap**: n-gram / MinHash / Rabin-Karp
@@ -82,7 +100,7 @@ Feasible in the runway: 1 run comfortably, 2 if curation is quick.
 
 ---
 
-## Output optimization / leverage
+## Output optimization / leverage  (Owner: @technical-monish)
 
 - [ ] **Integrity Dashboard**: two Turnitin-style headline numbers (AI % +
   Similarity %) + Citation Health + patchwork flags, up top.
@@ -93,7 +111,7 @@ Feasible in the runway: 1 run comfortably, 2 if curation is quick.
 
 ---
 
-## Alibaba Cloud deployment (MANDATORY)
+## Alibaba Cloud deployment (MANDATORY)  (Owner: @technical-monish)
 
 - **Reasoning LLM → Qwen via DashScope** (OpenAI-compatible, LiteLLM-supported).
   Crew LLM is already configurable: set `PAPERGUARD_CREW_MODEL=dashscope/qwen-plus`
@@ -111,14 +129,17 @@ Feasible in the runway: 1 run comfortably, 2 if curation is quick.
 
 ## Prioritized 8-day plan
 
-| Day | Focus |
-|:---|:---|
-| 1–2 | Plagiarism upgrade (fingerprint + semantic + cross-agent dedupe); Alibaba account + Qwen wiring |
-| 2–4 | Curate hard dataset; launch training run (overnight) |
-| 4–5 | Eval v2.1 on adversarial/held-out; re-fit calibration; push to HF + update card |
-| 5–6 | Integrity Dashboard (combined overlay, two headline numbers) + annotated PDF |
-| 6–7 | Containerize + deploy on Alibaba (FC/PAI); Qwen end-to-end; live smoke-test |
-| 7–8 | Real-paper testing (incl. two-column IEEE), edge cases, docs, demo polish |
+Two tracks run in parallel: **@sameerreddy** owns training; **@technical-monish**
+owns everything else.
+
+| Day | @sameerreddy (training) | @technical-monish (everything else) |
+|:---|:---|:---|
+| 1–2 | Curate ~500k hard/diverse pool + build held-out eval set | Plagiarism upgrade (fingerprint + semantic + cross-agent dedupe); Alibaba account + Qwen wiring |
+| 2–4 | Run 2–3 epochs @150k; log accuracy/F1/AUC/FPR | Integrity Dashboard (two headline numbers + combined overlay) |
+| 4–5 | Eval v2.1 on adversarial/held-out; re-fit calibration; push to HF + update card | Turnitin-style annotated PDF; citation adds (DOI consistency, retraction check) |
+| 5–6 | Support integration of v2.1; sanity-check scores in the app | Containerize; add Qwen backend for sub-agents |
+| 6–7 | (buffer / optional 2nd run if metrics lag) | Deploy on Alibaba (FC/PAI); Qwen end-to-end; live smoke-test |
+| 7–8 | Final model card + eval writeup for the demo | Real-paper testing (two-column IEEE), edge cases, docs, demo polish |
 
 ---
 

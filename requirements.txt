@@ -1,7 +1,7 @@
 pymupdf4llm
 pymupdf
 pydantic
-google-generativeai
+google-genai
 requests
 streamlit
 python-dotenv

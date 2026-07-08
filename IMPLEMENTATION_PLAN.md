@@ -101,8 +101,9 @@ env-overridable (`PAPERGUARD_DETECTOR_CALIB_MIDPOINT` / `_SCALE`).
 ### E. Tech debt
 - [x] Model name unified: both `core/reference_parser.py` and `services/gemini.py`
   now read `PAPERGUARD_GEMINI_MODEL` (default `gemini-2.5-flash`).
-- [ ] Migrate off the EOL `google.generativeai` SDK to `google.genai` (deferred;
-  still emits a deprecation warning but works).
+- [x] Migrated off the EOL `google.generativeai` SDK to `google-genai`.
+  `services/gemini.py` is the single integration point; `reference_parser` now
+  routes through it. `requirements.txt` updated. No more deprecation warning.
 - [ ] Reference extraction falls back to a weak heuristic ("Unknown Title")
   without a valid key.
 

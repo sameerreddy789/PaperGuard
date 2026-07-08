@@ -10,12 +10,12 @@ import sys
 import json
 import argparse
 from typing import List, Optional
-import google.generativeai as genai
 from pydantic import ValidationError
 
 # Adding parent dir to path to allow absolute imports when running as script
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.reference import Reference
+from services import gemini as gemini_service
 
 class ReferenceParser:
     """
@@ -30,13 +30,12 @@ class ReferenceParser:
             api_key: Optional Gemini API Key.
         """
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
-        if self.api_key:
-            genai.configure(api_key=self.api_key)
-            # Keep the model name consistent with services/gemini.py.
-            model_name = os.getenv("PAPERGUARD_GEMINI_MODEL", "gemini-2.5-flash")
-            self.model = genai.GenerativeModel(model_name)
-        else:
-            self.model = None
+        # LLM calls are routed through services.gemini (the single google-genai
+        # integration point). If an explicit key is passed, expose it via env so
+        # the shared client picks it up.
+        if api_key:
+            os.environ["GEMINI_API_KEY"] = api_key
+        self.llm_enabled = bool(self.api_key)
 
     def parse_references(self, references_text: str) -> List[Reference]:
         """
@@ -52,7 +51,7 @@ class ReferenceParser:
         if not references_text.strip():
             return []
             
-        if self.model:
+        if self.llm_enabled:
             try:
                 return self._parse_with_llm(references_text)
             except Exception as e:
@@ -78,15 +77,19 @@ class ReferenceParser:
         {text}
         """
         
-        response = self.model.generate_content(prompt)
-        
-        # Clean markdown formatting if present
-        raw_json = response.text
+        raw_json = gemini_service.call_llm(prompt, response_format="json")
+        if not raw_json:
+            raise RuntimeError("LLM returned no content for reference extraction.")
+
+        # Clean markdown fences if present
+        raw_json = raw_json.strip()
         if raw_json.startswith("```json"):
-            raw_json = raw_json[7:-3]
-        elif raw_json.startswith("```"):
-            raw_json = raw_json[3:-3]
-            
+            raw_json = raw_json[7:]
+        if raw_json.startswith("```"):
+            raw_json = raw_json[3:]
+        if raw_json.endswith("```"):
+            raw_json = raw_json[:-3]
+
         parsed_data = json.loads(raw_json.strip())
         
         references = []

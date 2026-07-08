@@ -149,7 +149,7 @@ See `IMPLEMENTATION_PLAN.md` → "Pending Work / Next-Session Backlog" for detai
 | A | Streamlit UI + **PDF export** — **DONE**; only live browser smoke-test remains | `app.py` | done |
 | B1 | Embedding-based stylometric "Frankenstein" patchwork detection — **DONE** | `agents/detector_agent.py`, `agents/safety_net.py` | done |
 | B2 | Calibration re-fit tooling (`fit_calibration.py`) — **DONE** (full dataset fit = 1-cmd follow-up) | `fit_calibration.py` | done |
-| E | Gemini model name unified via `PAPERGUARD_GEMINI_MODEL` — **DONE** (full `google.genai` SDK migration deferred) | `core/reference_parser.py`, `services/gemini.py` | done |
+| E | Model name unified + **migrated to `google-genai` SDK** (EOL SDK removed) — **DONE** | `core/reference_parser.py`, `services/gemini.py` | done |
 | C | Live CrewAI crew run (needs valid `GEMINI_API_KEY`) | `.env` | pending |
 | D | Real-paper testing + deployment (HF Inference API for detector on free hosts) | — | pending |
 

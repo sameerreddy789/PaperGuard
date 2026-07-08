@@ -1,98 +1,112 @@
+"""
+Gemini LLM wrapper (google-genai SDK).
+
+Public interface is unchanged: ``call_llm`` and ``call_llm_json``. Uses the
+current ``google-genai`` client (the older ``google-generativeai`` package is
+end-of-life). The model name is read from ``PAPERGUARD_GEMINI_MODEL`` (default
+``gemini-2.5-flash``) so it stays consistent across the codebase.
+
+The client is created lazily and re-created if the API key changes at runtime
+(the Streamlit UI can set the key mid-session).
+"""
+
 import os
 import json
-from typing import Dict, Any, Optional, List
-import google.generativeai as genai
+from typing import Dict, Any, Optional
 
-# Try to initialize the API, but don't fail immediately if key is missing 
-# (allows importing the module and checking later)
-_initialized = False
+from google import genai
+from google.genai import types
 
-def _init_api():
-    global _initialized
-    if not _initialized:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if api_key:
-            genai.configure(api_key=api_key)
-            _initialized = True
-        else:
-            print("Warning: GEMINI_API_KEY not found in environment.")
+_client = None
+_client_key: Optional[str] = None
 
-def call_llm(prompt: str, system_instruction: Optional[str] = None, response_format: Optional[str] = None) -> Optional[str]:
+
+def _get_client():
+    """Return a cached genai.Client, (re)creating it if the API key changed."""
+    global _client, _client_key
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    if _client is None or _client_key != api_key:
+        try:
+            _client = genai.Client(api_key=api_key)
+            _client_key = api_key
+        except Exception as e:
+            print(f"Failed to initialize Gemini client: {e}")
+            return None
+    return _client
+
+
+def _model_name() -> str:
+    return os.getenv("PAPERGUARD_GEMINI_MODEL", "gemini-2.5-flash")
+
+
+def call_llm(
+    prompt: str,
+    system_instruction: Optional[str] = None,
+    response_format: Optional[str] = None,
+) -> Optional[str]:
     """
-    Call Gemini 3.1 Flash Lite API.
-    
+    Call Gemini and return the response text (or None on failure/no key).
+
     Args:
         prompt: The main user prompt.
-        system_instruction: Optional system instructions to guide behavior.
-        response_format: If "json", asks the model to return structured JSON.
+        system_instruction: Optional system instructions to guide behaviour.
+        response_format: If "json", requests a JSON response mime type.
     """
-    _init_api()
-    if not _initialized:
+    client = _get_client()
+    if client is None:
         return None
-        
-    # Single source of truth for the Gemini model (override via env if needed).
-    model_name = os.getenv("PAPERGUARD_GEMINI_MODEL", "gemini-2.5-flash")
-    
-    # Configure generation
-    generation_config = genai.types.GenerationConfig(
-        temperature=0.1,  # Low temperature for deterministic output
-    )
-    
-    # If JSON is requested, we can use response_mime_type in newer SDKs, 
-    # but prompting usually works well too.
+
+    config_kwargs: Dict[str, Any] = {"temperature": 0.1}
+    if system_instruction:
+        config_kwargs["system_instruction"] = system_instruction
     if response_format == "json":
-        generation_config.response_mime_type = "application/json"
-        
+        config_kwargs["response_mime_type"] = "application/json"
+
     try:
-        model = genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction=system_instruction
+        response = client.models.generate_content(
+            model=_model_name(),
+            contents=prompt,
+            config=types.GenerateContentConfig(**config_kwargs),
         )
-        
-        response = model.generate_content(
-            prompt,
-            generation_config=generation_config
-        )
-        
         return response.text
     except Exception as e:
         print(f"Gemini API error: {e}")
         return None
 
+
 def call_llm_json(prompt: str, system_instruction: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """
-    Call Gemini and parse the response as JSON.
-    """
+    """Call Gemini and parse the response as JSON."""
     response_text = call_llm(
         prompt=prompt,
         system_instruction=system_instruction,
-        response_format="json"
+        response_format="json",
     )
-    
     if not response_text:
         return None
-        
+
     try:
-        # Strip potential markdown formatting if the API returned it despite MIME type
         cleaned_text = response_text.strip()
         if cleaned_text.startswith("```json"):
             cleaned_text = cleaned_text[7:]
+        if cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text[3:]
         if cleaned_text.endswith("```"):
             cleaned_text = cleaned_text[:-3]
-            
         return json.loads(cleaned_text.strip())
     except json.JSONDecodeError as e:
         print(f"Failed to parse LLM JSON response: {e}\nResponse was: {response_text}")
         return None
 
+
 if __name__ == "__main__":
-    import sys
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except ImportError:
         pass
-        
+
     print("Testing Gemini API...")
     res = call_llm("Explain what PaperGuard is in one sentence.", system_instruction="You are a helpful AI.")
     print(f"Result: {res}")

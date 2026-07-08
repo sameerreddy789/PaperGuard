@@ -66,6 +66,27 @@ Run on the SAME frozen set + script. v2.1 is a **genuine win** iff:
 Failure/caution signals: AUC up but disguised still ~0 (didn't learn the hard
 case); any register (esp. student/informal) FPR jumping 0%→>5% (over-aggressive).
 
+## Decision boundary (PRE-REGISTERED — decide the action before the number)
+
+Judged on the frozen external benchmark at the **≤1% FPR operating point**, with
+per-register FPR checked (arXiv canary):
+
+- **SHIP as a clear win** — disguised recall **≥50%** AND no FPR regression on any
+  register (arXiv ≤2.5%, others ~0%).
+- **SHIP as an interim improvement** — disguised recall **25–50%** (a large jump
+  from v2.0's 0%) AND no FPR regression on any register. Rationale: strictly
+  better than v2.0 with no downside → deploy, queue v2.2 for the rest.
+- **DO NOT ship → iterate to v2.2** — disguised recall **<25%** (marginal), OR the
+  AUC gain is only from default AI (disguised still ~0).
+- **HARD BLOCK regardless of recall** — any of: arXiv FPR rises disproportionately
+  vs the other four registers (= learned to flag *formality*, not AI);
+  student/informal/humanities FPR jumps 0%→>2%; overall deploy-FPR worse than
+  v2.0. (Falsely accusing real human writing is the cancel-the-product failure.)
+
+**Overfitting check (epoch-1 vs epoch-2):** if epoch-2 held-out RAID recall comes
+back **below** epoch-1's 92.1% even as training loss keeps dropping, the second
+pass is overfitting training-specific patterns — prefer the epoch-1 checkpoint.
+
 ## v2.1 (after adversarial/multi-model training) — TBD
 
 _Re-run with `PAPERGUARD_DETECTOR_MODEL=training/paperguard_v2_1` (after re-fitting

@@ -65,6 +65,17 @@ data won't move the needle. (For a bigger jump, swap the base to
 5. Re-fit calibration with `fit_calibration.py` on the new held-out set; push
    **v2.1** to HF and **update the (stale v1.5) model card**.
 
+### Laptop (6 GB RTX 3050) golden rules — ~4.5-5 h total
+1. **Route the cache** — HF silently dumps tens of GB to `C:`. Use
+   `--cache-dir D:\hf_cache` (or set `HF_DATASETS_CACHE` / `HF_HOME`). The script
+   defaults to `./hf_cache` (gitignored) and routes automatically.
+2. **Base = DistilBERT** — continue from v2.0 (default) or `distilbert-base-*`.
+   No RoBERTa-large / Llama on 6 GB.
+3. **No multitasking** while training (no 4K video / games / heavy dev server).
+4. **Batch size:** `--batch-size 8` ≈ 4.5-5.5 GB VRAM (sweet spot); 16 OOMs
+   instantly; eval batch auto-set to 2×. **OOM fallback:** `--batch-size 4
+   --grad-accum 2` (holds 4 in VRAM, trains like effective 8). All wired in `train_v2_1.py`.
+
 ### Expected outcome (set expectations)
 - Easy-text accuracy stays ~99% (already saturated — won't visibly improve).
 - Real wins: **much lower false positives on human/ESL** and **much better recall

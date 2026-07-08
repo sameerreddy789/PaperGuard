@@ -30,8 +30,8 @@ def call_llm(prompt: str, system_instruction: Optional[str] = None, response_for
     if not _initialized:
         return None
         
-    # According to plan, we use gemini-3.1-flash-lite (or fallback to latest flash)
-    model_name = "gemini-2.5-flash" # Note: using 2.5-flash as 3.1-flash-lite may not be universally available in all SDKs yet, adapt as needed.
+    # Single source of truth for the Gemini model (override via env if needed).
+    model_name = os.getenv("PAPERGUARD_GEMINI_MODEL", "gemini-2.5-flash")
     
     # Configure generation
     generation_config = genai.types.GenerationConfig(

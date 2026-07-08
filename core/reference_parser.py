@@ -32,8 +32,9 @@ class ReferenceParser:
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if self.api_key:
             genai.configure(api_key=self.api_key)
-            # Use gemini-1.5-flash for fast text extraction
-            self.model = genai.GenerativeModel('gemini-1.5-flash')
+            # Keep the model name consistent with services/gemini.py.
+            model_name = os.getenv("PAPERGUARD_GEMINI_MODEL", "gemini-2.5-flash")
+            self.model = genai.GenerativeModel(model_name)
         else:
             self.model = None
 

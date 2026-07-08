@@ -73,17 +73,19 @@ env-overridable (`PAPERGUARD_DETECTOR_CALIB_MIDPOINT` / `_SCALE`).
 - [x] Citation table (4-tier), plagiarism panel, writing-quality panel, references.
 - [x] Crew/engine executive summary + honest-limitations disclaimer + JSON download.
 - [x] Sidebar settings (Gemini/Serper keys, detector model, crew toggle).
-- [ ] PDF export (JSON download done; PDF still pending).
+- [x] PDF export (reportlab report: metrics, summary, findings, references, disclaimer).
 - [ ] Live browser smoke-test with a real upload (ideally with a valid Gemini key).
 
 ### B. Detector enhancements (make more of the 20-hour model)
-- **B1. Embedding-based stylometric drift / "Frankenstein" patchwork detection.**
-  Use the DistilBERT [CLS]/pooled 768-dim embeddings; compare paragraph
-  embeddings to flag abrupt style shifts (AI text pasted into human text) that a
-  single per-paragraph score misses.
-- **B2. Re-fit calibration on a labelled dev slice** (temperature/Platt scaling)
-  using the cached training datasets, replacing the heuristic midpoint/scale for
-  a research-grade calibration.
+- [x] **B1. Embedding-based stylometric drift / "Frankenstein" patchwork detection.**
+  `DetectorAgent.embed_text` (masked mean-pooled last hidden state) + a robust
+  median/MAD modified-z outlier check in `safety_net._detect_patchwork`. Flags
+  paragraphs whose style deviates from the document (AI pasted into human text)
+  and reports a `style_cohesion` score. Surfaced in the UI heatmap.
+- [x] **B2. Calibration re-fit tooling** — `fit_calibration.py` fits
+  MIDPOINT/SCALE from a labelled dataset via 1-D logistic regression on the logit
+  margins (`--csv` / `--hf-dataset`; `--self-test` validated). Running a full fit
+  on a labelled dev slice is a one-command follow-up (needs the training venv).
 
 ### C. Live CrewAI crew run
 - Requires a valid `GEMINI_API_KEY` in `.env`. The crew builds and the engine
@@ -97,11 +99,12 @@ env-overridable (`PAPERGUARD_DETECTOR_CALIB_MIDPOINT` / `_SCALE`).
 - Rate-limit/retry handling under load; billing alerts.
 
 ### E. Tech debt
-- `core/reference_parser.py` uses the EOL `google.generativeai` SDK and pins
-  `gemini-1.5-flash` while `services/gemini.py` uses `gemini-2.5-flash` — unify
-  onto the `google.genai` SDK and one model name.
-- Reference extraction falls back to a weak heuristic ("Unknown Title") without a
-  valid key.
+- [x] Model name unified: both `core/reference_parser.py` and `services/gemini.py`
+  now read `PAPERGUARD_GEMINI_MODEL` (default `gemini-2.5-flash`).
+- [ ] Migrate off the EOL `google.generativeai` SDK to `google.genai` (deferred;
+  still emits a deprecation warning but works).
+- [ ] Reference extraction falls back to a weak heuristic ("Unknown Title")
+  without a valid key.
 
 ---
 

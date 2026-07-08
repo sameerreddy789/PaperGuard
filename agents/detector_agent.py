@@ -220,6 +220,39 @@ class DetectorAgent(BaseAgent):
         return [self.score_text(p) for p in paragraphs]
 
     # ------------------------------------------------------------------ #
+    # Embeddings (for stylometric drift / "Frankenstein" patchwork detection)
+    # ------------------------------------------------------------------ #
+    def embed_text(self, text: str) -> Optional[List[float]]:
+        """
+        Return a mean-pooled last-hidden-state embedding for ``text`` (a
+        stylometric fingerprint), or ``None`` if the model is unavailable.
+
+        Uses the transformer encoder's final hidden states (architecture-
+        agnostic via ``output_hidden_states``), masked-mean-pooled over tokens.
+        """
+        bundle = _load_bundle(self.model_name)
+        if bundle.model is None or not (text and text.strip()):
+            return None
+
+        import torch
+
+        inputs = bundle.tokenizer(
+            text, return_tensors="pt", truncation=True, max_length=_MAX_LENGTH,
+        ).to(bundle.device)
+        with torch.no_grad():
+            out = bundle.model(**inputs, output_hidden_states=True)
+        hidden = out.hidden_states[-1][0]                 # (seq, hidden)
+        mask = inputs["attention_mask"][0].unsqueeze(-1)  # (seq, 1)
+        summed = (hidden * mask).sum(dim=0)
+        counts = mask.sum(dim=0).clamp(min=1)
+        pooled = (summed / counts)
+        return pooled.detach().cpu().tolist()
+
+    def embed_paragraphs(self, paragraphs: List[str]) -> List[Optional[List[float]]]:
+        """Embed a list of paragraph strings (one vector per paragraph)."""
+        return [self.embed_text(p) for p in paragraphs]
+
+    # ------------------------------------------------------------------ #
     # Standalone agent entry point
     # ------------------------------------------------------------------ #
     def run(self, text: str, references: Optional[List[Reference]] = None) -> "Any":

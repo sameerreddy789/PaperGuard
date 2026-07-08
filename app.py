@@ -11,6 +11,7 @@ Run:  streamlit run app.py
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import tempfile
@@ -160,11 +161,28 @@ def render_heatmap(report: Dict[str, Any]) -> None:
             icon=None,
         )
 
+    # Stylometric patchwork ("Frankenstein") signal.
+    stylo = ai.get("stylometry") or {}
+    if stylo.get("available"):
+        cohesion = stylo.get("style_cohesion")
+        outliers = stylo.get("outliers") or []
+        if outliers:
+            idxs = ", ".join(str(o.get("paragraph_index")) for o in outliers)
+            st.error(
+                f"Possible mixed authorship (patchwork): paragraph(s) {idxs} deviate "
+                f"stylometrically from the rest of the paper (style cohesion {cohesion}). "
+                "This can indicate AI text pasted into human writing. Indicative, not definitive.",
+                icon=None,
+            )
+        else:
+            st.caption(f"Stylometric cohesion: {cohesion} (no anomalous-style paragraphs detected).")
+
     if not heatmap:
         st.info("No paragraph-level AI results available.")
         return
 
     fulltext = _full_paragraphs(report.get("_source_text", ""))
+    patch_idx = {o.get("paragraph_index") for o in (stylo.get("outliers") or [])}
 
     for entry in heatmap:
         level = entry.get("heat_level", "unknown")
@@ -181,6 +199,11 @@ def render_heatmap(report: Dict[str, Any]) -> None:
             note = (
                 f'<div class="pg-note">Safety-net override [{ov}] &mdash; '
                 f'model {det}% vs context {lin}%. {entry.get("reasoning", "")}</div>'
+            )
+        if idx in patch_idx:
+            note += (
+                '<div class="pg-note" style="background:#FEF2F2;color:#991B1B;">'
+                'Stylometric outlier &mdash; possible different author (patchwork).</div>'
             )
 
         st.markdown(
@@ -246,6 +269,108 @@ def render_references(report: Dict[str, Any]) -> None:
 
 def _escape(text: str) -> str:
     return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# --------------------------------------------------------------------------- #
+# PDF export
+# --------------------------------------------------------------------------- #
+def build_pdf(report: Dict[str, Any]) -> bytes:
+    """Render the report to a PDF (reportlab) and return the bytes."""
+    from reportlab.lib.enums import TA_LEFT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, ListFlowable, ListItem,
+    )
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4, topMargin=1.6 * cm, bottomMargin=1.6 * cm,
+        leftMargin=1.8 * cm, rightMargin=1.8 * cm, title="PaperGuard Report",
+    )
+    ss = getSampleStyleSheet()
+    h1 = ParagraphStyle("pg_h1", parent=ss["Title"], fontSize=20, textColor=colors.HexColor("#0F172A"))
+    h2 = ParagraphStyle("pg_h2", parent=ss["Heading2"], fontSize=13, textColor=colors.HexColor("#1E293B"),
+                        spaceBefore=12, spaceAfter=4)
+    body = ParagraphStyle("pg_body", parent=ss["BodyText"], fontSize=9.5, leading=14, alignment=TA_LEFT)
+    small = ParagraphStyle("pg_small", parent=ss["BodyText"], fontSize=8, textColor=colors.HexColor("#64748B"))
+
+    ai = _meta(report, "AIDetectionSafetyNet")
+    cite = _meta(report, "CitationAgent")
+    plag = _meta(report, "PlagiarismAgent")
+    qual = _meta(report, "QualityAgent")
+
+    story: List[Any] = []
+    story.append(Paragraph("PaperGuard &mdash; Integrity Report", h1))
+    story.append(Paragraph(_escape(report.get("paper_title") or report.get("file_name", "")), body))
+    story.append(Spacer(1, 8))
+
+    # Metrics table
+    metrics = [
+        ["AI Content", _fmt(ai.get("overall_ai_score"), "%"), "Citation Health", _fmt(cite.get("citation_health_score"), "%")],
+        ["Plagiarism", _fmt(plag.get("plagiarism_score"), "%"), "Writing Quality", _fmt(qual.get("overall_quality_score"), "/10")],
+    ]
+    tbl = Table(metrics, colWidths=[3.6 * cm, 4.0 * cm, 3.6 * cm, 4.0 * cm])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F1F5F9")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#0F172A")),
+        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ("PADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(tbl)
+
+    story.append(Paragraph("Executive Summary", h2))
+    story.append(Paragraph(_escape(report.get("summary", "(none)")), body))
+
+    # Stylometry
+    stylo = ai.get("stylometry") or {}
+    if stylo.get("available") and stylo.get("outliers"):
+        idxs = ", ".join(str(o.get("paragraph_index")) for o in stylo["outliers"])
+        story.append(Paragraph("Stylometric Patchwork Signal", h2))
+        story.append(Paragraph(
+            _escape(f"Paragraph(s) {idxs} deviate stylometrically from the rest of the paper "
+                    f"(style cohesion {stylo.get('style_cohesion')}); possible mixed authorship."),
+            body,
+        ))
+
+    # Per-agent findings
+    for name, label in [
+        ("AIDetectionSafetyNet", "AI Detection"),
+        ("CitationAgent", "Citations"),
+        ("PlagiarismAgent", "Plagiarism"),
+        ("QualityAgent", "Writing Quality"),
+    ]:
+        ar = _agent(report, name)
+        if not ar:
+            continue
+        story.append(Paragraph(f"{label} &mdash; status: {_escape(ar.get('status',''))}", h2))
+        items = [ListItem(Paragraph(_escape(f), body)) for f in ar.get("findings", [])[:12]]
+        if items:
+            story.append(ListFlowable(items, bulletType="bullet", start="•"))
+
+    # References
+    refs = report.get("extracted_references", [])
+    story.append(Paragraph(f"References ({len(refs)})", h2))
+    for i, r in enumerate(refs, start=1):
+        title = r.get("title") or r.get("raw_text") or "(untitled)"
+        authors = ", ".join(r.get("authors") or []) or "unknown authors"
+        year = r.get("year") or "n.d."
+        story.append(Paragraph(_escape(f"[{i}] {title} — {authors} ({year})"), small))
+
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(
+        "Disclaimer: PaperGuard is a pre-submission self-check, not a definitive verdict. "
+        "AI-detection and plagiarism results are probabilistic indicators; plagiarism coverage "
+        "is limited to open web and open-access scholarly sources.", small,
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
 
 
 # --------------------------------------------------------------------------- #
@@ -322,12 +447,25 @@ if report:
     with tabs[4]:
         render_references(report)
 
-    st.download_button(
-        "Download full report (JSON)",
-        data=json.dumps({k: v for k, v in report.items() if k != "_source_text"}, indent=2, ensure_ascii=False),
-        file_name=f"paperguard_report_{Path(st.session_state.get('report_name','report')).stem}.json",
-        mime="application/json",
-    )
+    stem = Path(st.session_state.get("report_name", "report")).stem
+    dl1, dl2 = st.columns(2)
+    with dl1:
+        try:
+            st.download_button(
+                "Download report (PDF)",
+                data=build_pdf(report),
+                file_name=f"paperguard_report_{stem}.pdf",
+                mime="application/pdf",
+            )
+        except Exception as exc:  # noqa: BLE001
+            st.caption(f"PDF export unavailable: {exc}")
+    with dl2:
+        st.download_button(
+            "Download full report (JSON)",
+            data=json.dumps({k: v for k, v in report.items() if k != "_source_text"}, indent=2, ensure_ascii=False),
+            file_name=f"paperguard_report_{stem}.json",
+            mime="application/json",
+        )
 
     st.divider()
     st.caption(

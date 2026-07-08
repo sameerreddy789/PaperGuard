@@ -44,7 +44,7 @@ framing throughout is research-grade, not student-only.
 | Phase 2: Four base agents (standalone) | ✅ Complete | citation / quality / ai_detection / plagiarism |
 | Phase 2.5: AI-Detection Safety Net | ✅ Complete | Detector + Linguistic + Conflict Resolver wired; validated on OOD cases |
 | Phase 3: CrewAI orchestrator + conflict resolution | ✅ Complete | Crew built + engine fallback; end-to-end Report validated (engine path) |
-| Phase 4: Streamlit UI | 🟡 Built | `app.py` boots clean; heatmap/citations/panels render off validated report; PDF export + live browser smoke-test pending |
+| Phase 4: Streamlit UI | ✅ Built | `app.py`: heatmap (+patchwork), citations, panels, PDF/JSON export; only live browser smoke-test remains |
 | Phase 5: Polish & deploy | ⬜ Not Started | |
 
 **Legend:** ✅ Complete · 🟡 In Progress · ⬜ Not Started · ❌ Blocked
@@ -102,6 +102,7 @@ gracefully without API keys.
 | Linguistic Agent (LLM, per-paragraph) | `agents/linguistic_agent.py` | ✅ | Uses shared `LINGUISTIC_AGENT_PROMPT`; pluggable LLM |
 | Conflict Resolver (scenarios A/B/C) | `agents/conflict_resolver.py` | ✅ | None-safe; per-paragraph batch + heatmap + document rollup |
 | Safety-net runner (per-paragraph verdict + heatmap) | `agents/safety_net.py` | ✅ | Ties detector+linguistic+resolver over a document |
+| Stylometric patchwork detection (embeddings) | `agents/detector_agent.py`, `agents/safety_net.py` | ✅ | Flags "Frankenstein" mixed-authorship paragraphs via embedding outliers |
 
 > **Detector salvaged via logit-margin calibration.** The v2.0 model's *softmax*
 > is saturated (reports ~0% AI even on real AI text), but the raw logit margin
@@ -145,12 +146,12 @@ See `IMPLEMENTATION_PLAN.md` → "Pending Work / Next-Session Backlog" for detai
 
 | # | Item | File(s) | Priority |
 | :--- | :--- | :--- | :---: |
-| A | ~~Streamlit UI (heatmap, citation table, panels, disclaimers, caching)~~ **BUILT** — remaining: PDF export + live browser smoke-test | `app.py` | done |
-| B1 | Embedding-based stylometric drift / "Frankenstein" patchwork detection | `agents/detector_agent.py` | 2 |
-| B2 | Re-fit detector calibration (temperature/Platt) on a labelled dev slice | training script | 3 |
-| C | Live CrewAI crew run (needs valid `GEMINI_API_KEY`) | `.env` | 2 |
-| D | Real-paper testing + deployment (HF Inference API for detector on free hosts) | — | 4 |
-| E | Tech debt: migrate `reference_parser` off EOL `google.generativeai`; unify model name | `core/reference_parser.py` | 4 |
+| A | Streamlit UI + **PDF export** — **DONE**; only live browser smoke-test remains | `app.py` | done |
+| B1 | Embedding-based stylometric "Frankenstein" patchwork detection — **DONE** | `agents/detector_agent.py`, `agents/safety_net.py` | done |
+| B2 | Calibration re-fit tooling (`fit_calibration.py`) — **DONE** (full dataset fit = 1-cmd follow-up) | `fit_calibration.py` | done |
+| E | Gemini model name unified via `PAPERGUARD_GEMINI_MODEL` — **DONE** (full `google.genai` SDK migration deferred) | `core/reference_parser.py`, `services/gemini.py` | done |
+| C | Live CrewAI crew run (needs valid `GEMINI_API_KEY`) | `.env` | pending |
+| D | Real-paper testing + deployment (HF Inference API for detector on free hosts) | — | pending |
 
 ---
 

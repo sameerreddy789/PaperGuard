@@ -162,10 +162,20 @@ def main() -> None:
         dev_rec, dev_fpr = _rf(dev, best_t)
         test_rec, test_fpr = _rf(test, best_t)
         print("\n=== Dev/test split (threshold chosen on DEV, reported on TEST) ===")
-        print(f"  chosen cutoff (max Youden on dev): {best_t}")
-        print(f"  DEV : recall {dev_rec*100:.1f}%  FPR {dev_fpr*100:.1f}%  (n={len(dev)})")
-        print(f"  TEST: recall {test_rec*100:.1f}%  FPR {test_fpr*100:.1f}%  (n={len(test)})  <- the honest number")
-        print("  (Small n: treat as indicative; wide confidence intervals.)")
+        print(f"  [max-Youden]  cutoff {best_t}: TEST recall {test_rec*100:.1f}% / FPR {test_fpr*100:.1f}%  (n={len(test)})")
+        # Deployment operating point: lowest dev threshold with dev-FPR <= target.
+        # For accusing a student, low FPR matters far more than max Youden.
+        target_fpr = 0.01
+        op_t = 95
+        for t in range(5, 100, 5):
+            _, fpr = _rf(dev, t)
+            if fpr <= target_fpr:
+                op_t = t
+                break
+        op_rec, op_fpr = _rf(test, op_t)
+        print(f"  [FPR<=1% ]   cutoff {op_t}: TEST recall {op_rec*100:.1f}% / FPR {op_fpr*100:.1f}%  <- deployment-relevant")
+        print("  (Small n: wide CIs. Youden ignores that high FPR is unshippable; the")
+        print("   FPR<=1% row is the honest operating point for accusing a human.)")
     else:
         print("\n[AUC/threshold sweep skipped: need BOTH ai and human samples.]")
 

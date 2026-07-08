@@ -42,3 +42,4 @@ hf_cache/
 
 # Local scratch / verification artifacts
 _scratch_*
+*.log

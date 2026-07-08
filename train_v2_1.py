@@ -74,6 +74,20 @@ DEFAULT_HELDOUT_ATTACK = "paraphrase"
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+def _load_env_file(path: str = ".env") -> None:
+    """Zero-dependency .env loader (so HF_TOKEN etc. are available)."""
+    try:
+        if os.path.exists(path):
+            for line in open(path, encoding="utf-8"):
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    if v.strip():
+                        os.environ.setdefault(k.strip(), v.strip())
+    except Exception:
+        pass
+
+
 def _clean(text: Any) -> Optional[str]:
     if not isinstance(text, str):
         return None
@@ -148,7 +162,9 @@ def load_raid(train_pool: Pool, eval_pool: Pool, n_ai: int, n_human: int,
         if ai_t < n_ai and train_pool.add(text, LABEL_AI, "raid_ai"):
             ai_t += 1
 
-        if ai_t >= n_ai and hu_t >= n_human and hm_e >= n_heldout and adv_e >= n_heldout:
+        # RAID's value is AI diversity + the held-out facets; human is scarce here
+        # and is filled mainly from the pile, so don't block on the human target.
+        if ai_t >= n_ai and hm_e >= n_heldout and adv_e >= n_heldout:
             break
         if i % 100000 == 0 and i:
             print(f"  ...scanned {i} rows (ai_t={ai_t} hu_t={hu_t} unseen={hm_e} adv={adv_e})")
@@ -313,6 +329,7 @@ def main() -> None:
     ap.add_argument("--repo-id", default="vediumsameer/paperguard-ai-detector")
     ap.add_argument("--smoke", action="store_true", help="Tiny curation-only dry run (no training).")
     args = ap.parse_args()
+    _load_env_file()  # pick up HF_TOKEN etc. from .env
 
     # Route HF caches to a spacious drive BEFORE datasets/transformers touch disk.
     cache = os.path.abspath(args.cache_dir)
@@ -328,21 +345,23 @@ def main() -> None:
         args.cot_cap = 40
 
     half = args.pool_size // 2
-    # RAID is the workhorse; pile fills a stability fraction; academic/CoT top up AI diversity.
-    raid_human = int(half * (1 - args.pile_frac))
-    pile_human = half - raid_human
-    raid_ai = int(half * (1 - args.pile_frac)) - args.cot_cap
-    pile_ai = half - raid_ai - args.cot_cap
-    max_iter = 20000 if args.smoke else 4_000_000
+    # Human is the SCARCE class -> the pile is the primary human source.
+    # RAID is the primary AI source (adversarial + multi-model diversity); it has
+    # only ~tens of thousands of human docs, so we take those opportunistically.
+    raid_ai = half
+    raid_human_cap = 30000
+    pile_human = half
+    pile_ai = max(int(half * 0.15), 5000)   # small stability slice of easy AI
+    raid_max_iter = 20000 if args.smoke else 1_500_000
+    pile_max_iter = 20000 if args.smoke else 3_000_000
 
     train_pool, eval_pool = Pool(), Pool()
-    load_raid(train_pool, eval_pool, max(raid_ai, 1000), max(raid_human, 1000),
+    load_raid(train_pool, eval_pool, raid_ai, raid_human_cap,
               [m.lower() for m in args.heldout_models], args.heldout_attack.lower(),
-              args.heldout_size, max_iter)
+              args.heldout_size, raid_max_iter)
     load_ateeqq(train_pool, args.ateeqq_cap)
     load_cot(train_pool, args.cot_dataset, args.cot_cap)
-    load_pile(train_pool, max(pile_ai, 1000), max(pile_human, 1000),
-              20000 if args.smoke else 2_000_000)
+    load_pile(train_pool, pile_ai, pile_human, pile_max_iter)
 
     train_rows = balance(train_pool)
     print(f"\n[pool] final train={len(train_rows)}  held-out eval={len(eval_pool.rows)} "

@@ -114,6 +114,32 @@ def main() -> None:
     for g, (c, t) in sorted(by_group.items()):
         print(f"  {g:>12}: {_rate(c, t)}")
 
+    # ---- Threshold-independent quality + threshold sweep (needs BOTH classes) ---- #
+    scored_rows = [r for r in rows if r["ai_prob"] is not None]
+    have_both = any(r["label"] == "ai" for r in scored_rows) and any(r["label"] == "human" for r in scored_rows)
+    if have_both:
+        y = [1 if r["label"] == "ai" else 0 for r in scored_rows]
+        s = [r["ai_prob"] for r in scored_rows]
+        try:
+            from sklearn.metrics import roc_auc_score
+            auc = roc_auc_score(y, s)
+            print(f"\n=== AUC (threshold-independent separation) ===\n  AUC = {auc:.3f}")
+            print("  (High AUC + bad accuracy => just recalibrate the threshold, no retrain needed.)")
+        except Exception as e:  # noqa: BLE001
+            print(f"\n[AUC unavailable: {e}]")
+
+        print("\n=== Threshold sweep (AI-prob cutoff -> recall / FPR) ===")
+        print(f"  {'cutoff':>6}  {'AI recall':>10}  {'human FPR':>10}  {'Youden J':>9}")
+        ai_s = [r["ai_prob"] for r in scored_rows if r["label"] == "ai"]
+        hu_s = [r["ai_prob"] for r in scored_rows if r["label"] == "human"]
+        for t in (20, 30, 40, 50, 60, 65, 70, 80):
+            rec = sum(1 for v in ai_s if v >= t) / len(ai_s) if ai_s else 0
+            fpr = sum(1 for v in hu_s if v >= t) / len(hu_s) if hu_s else 0
+            print(f"  {t:>6}  {rec*100:>9.1f}%  {fpr*100:>9.1f}%  {(rec-fpr):>9.2f}")
+        print("  (Best cutoff ~ max Youden J = recall - FPR.)")
+    else:
+        print("\n[AUC/threshold sweep skipped: need BOTH ai and human samples.]")
+
     # ---- Leaderboard: which model's AI evades best (lowest AI recall) ---- #
     by_model = defaultdict(lambda: [0, 0])
     for r in ai_rows:

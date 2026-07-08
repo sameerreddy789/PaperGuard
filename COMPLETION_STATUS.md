@@ -45,8 +45,43 @@ verification** as a differentiator.
   `vediumsameer/paperguard-ai-detector` (`eval_loss=0.0003`). Training pipeline:
   `train_mega_dataset.py`. OOD validation: `ood_stress_test.py`.
 - **Note:** the near-zero eval loss reflects overfitting to easy data → softmax
-  saturation. See TASKS.md for the planned retraining on adversarial/multi-model
-  data.
+  saturation. Two retraining attempts (v2.1, v2.2) were made — see Phase 1.6.
+
+### Phase 1.6 — Detector retraining attempts + honest benchmarking (✅ done; v2.0 retained)
+
+A **frozen external benchmark** was built and both retrains were scored on it.
+The headline finding: **v2.0 is still the best detector; do not overwrite it.**
+
+| Component | File | Notes |
+| :--- | :--- | :--- |
+| Frozen benchmark (240 samples) | `benchmark_samples.json` | 40 AI (Gemini/Claude S5/GPT-5.5/Grok, default+disguised) + 200 human across 5 registers (arXiv/news/Yelp/Gutenberg/student). Not in any training set. |
+| Benchmark harness | `benchmark_detector.py` | AUC, threshold sweep, dev/test split, per-register FPR, arXiv canary. |
+| Results log | `benchmark_results.md` | v2.0 vs v2.1 vs v2.2, full per-register/per-model tables. |
+| v2.1 trainer | (superseded by `train_v2_2.py`) | RAID adversarial + Ateeqq + pile, 2 epochs. |
+| v2.2 trainer (fixed) | `train_v2_2.py` | Adds a **balanced, two-class, multi-register held-out eval** + a **nan-AUC abort alarm** + push safety gate. |
+
+**Benchmark results (frozen set — directly comparable):**
+
+| | AUC | human FPR | disguised recall | verdict |
+| :--- | :---: | :---: | :---: | :--- |
+| **v2.0 (deployed)** | **0.911** | **0.5%** | 0% | **shipped** |
+| v2.1 | 0.391 | 70% | 30% | HARD BLOCK |
+| v2.2 | 0.458 | 56% | 35% | HARD BLOCK |
+
+**What was fixed vs what remains:**
+- ✅ **Training methodology is fixed.** v2.1 failed because its held-out eval was
+  AI-only → `eval_auc=nan` every epoch → FPR was never measured → the model
+  over-flagged human text invisibly. `train_v2_2.py` fixes this: the held-out
+  eval is now two-class and register-diverse (v2.2 held-out: AUC 0.986, FPR 1.4%,
+  real numbers), and a callback aborts on `nan` AUC.
+- ❌ **The model still doesn't beat v2.0.** Even with an honest eval, v2.2 scores
+  AUC 0.458 (below random) on the frozen benchmark. Root cause is now clearly a
+  **data problem**: RAID adversarial text does not transfer to 2025-model
+  disguised AI, and continued training on it **degrades** v2.0's discrimination
+  (catastrophic forgetting). v2.1/v2.2 artifacts retained for forensics only.
+- **Decision:** v2.0 remains the production detector; HF is **not** overwritten.
+  The path to v2.3 is training data that actually represents 2025-model disguised
+  text, not another RAID retrain (see TASKS.md).
 
 ### Phase 2 — Base agents (✅)
 | Agent | File |
@@ -92,15 +127,19 @@ Shared foundation `agents/base.py` (lazy imports, `.pdf/.md/.txt` loading, CLI).
 - Cleanup: removed duplicate `core/citation_agent.py`, superseded trainers
   (v1/v1.5), `test_checkpoint.py`, stale `test_model.py`, and the removed
   AI-detection LLM modules.
+- **LLM determinism:** verdict + synthesis calls now default to **temperature
+  0.0** (`services/gemini.py`, `agents/orchestrator.py`), overridable via
+  `PAPERGUARD_LLM_TEMPERATURE`, so a paper yields reproducible reports run-to-run.
+  JSON output was already enforced (`response_mime_type` + fence stripping).
 
 ---
 
 ## What's next
 
-See **`TASKS.md`** for the prioritized 8-day plan: plagiarism upgrade
-(fingerprint + semantic), one focused detector retraining run on adversarial/
-multi-model/CoT data, the Integrity Dashboard, and **Alibaba Cloud deployment
-with Qwen**.
+Detector retraining is **done and closed** (v2.0 is final; v2.1/v2.2 failed the
+benchmark — Phase 1.6). See **`TASKS.md`** for the remaining plan: agent-centric
+report improvements, plagiarism upgrade (fingerprint + semantic), the Integrity
+Dashboard, and **Alibaba Cloud deployment with Qwen**.
 
 ## API keys
 

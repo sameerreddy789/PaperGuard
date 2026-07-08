@@ -101,7 +101,13 @@ def _run_crew() -> Optional[str]:
 
     try:
         model_name = os.getenv("PAPERGUARD_CREW_MODEL", "gemini/gemini-2.5-flash")
-        llm_kwargs: Dict[str, Any] = {"model": model_name, "temperature": 0.2}
+        # Deterministic synthesis by default (same env var as the verdict calls in
+        # services.gemini) so a paper's report is reproducible run-to-run.
+        try:
+            crew_temp = float(os.getenv("PAPERGUARD_LLM_TEMPERATURE", "0.0"))
+        except ValueError:
+            crew_temp = 0.0
+        llm_kwargs: Dict[str, Any] = {"model": model_name, "temperature": crew_temp}
         crew_api_base = os.getenv("PAPERGUARD_CREW_API_BASE")
         if crew_api_base:
             llm_kwargs["base_url"] = crew_api_base

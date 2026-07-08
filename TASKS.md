@@ -8,8 +8,8 @@
 outputs — an **AI-writing %** and a **Similarity/plagiarism %** — at comparable
 accuracy, and add our differentiator: **citation claim verification**.
 
-**Owners:** model training → **@sameerreddy** · everything else (agents, UI,
-plagiarism, deployment, docs) → **@technical-monish**.
+**Owners:** model training is **closed** (@sameerreddy — v2.0 final). All remaining
+work (agents, UI, plagiarism, deployment, docs) → **@technical-monish**.
 
 ---
 
@@ -17,76 +17,55 @@ plagiarism, deployment, docs) → **@technical-monish**.
 
 - **Detector = v2.0 "mega"** — DistilBERT (cased, ~66M params, 6 layers),
   deployed at [`vediumsameer/paperguard-ai-detector`](https://huggingface.co/vediumsameer/paperguard-ai-detector).
-  Trained (from v1.5) on Claude-Opus-4.8-distill (5k) + Ateeqq academic (6k) +
-  artem9k `ai-text-detection-pile` (250k), 2 epochs, `eval_loss=0.0003`.
-- **⚠️ The 0.0003 eval loss is a red flag, not a trophy.** It means the model
-  overfit an *easy, separable* distribution (the pile). That is exactly why its
-  softmax saturates (~0% AI on everything) and why it fails on out-of-
-  distribution text. We already work around saturation by scoring off the
-  **calibrated logit margin**, and the model now separates clean/academic AI
-  (~70–90%) from human (~10%).
+  **v2.0 is confirmed the best detector we have** (frozen benchmark AUC 0.911,
+  human FPR 0.5%). Two retrains (v2.1, v2.2) were attempted and **both failed** —
+  see below and `COMPLETION_STATUS.md` Phase 1.6.
+- **Retraining is DONE (and did not beat v2.0).** v2.1 failed the frozen
+  benchmark (AUC 0.391, FPR 70%); v2.2 fixed the training methodology (honest
+  two-class eval) but still failed (AUC 0.458, FPR 56%). Continued RAID training
+  **degrades** v2.0 rather than improving it. **v2.0 stays deployed; HF is not
+  overwritten.**
 - **AI detection = model-only** (calibrated margin + embedding patchwork). No LLM.
 - **Other layers:** citation (4-tier + claim verify), plagiarism (Serper +
   scholarly + LLM similarity), quality. CrewAI orchestrates; LLM (Gemini today,
-  Qwen-ready) does reasoning/synthesis only.
+  Qwen-ready) does reasoning/synthesis only, now at **temperature 0.0** for
+  reproducible reports (`PAPERGUARD_LLM_TEMPERATURE`).
 
 ---
 
-## Model Training — v2.1  (Owner: @sameerreddy)
+## Model Training — DONE (v2.1 + v2.2 both failed; v2.0 retained)  (Owner: @sameerreddy)
 
-### Verdict on "train with 10M docs?"
-**No — not worth it.** DistilBERT (66M params) converges early; the extra ~9.75M
-docs are mostly redundant *easy* samples we already saturate on, so accuracy gains
-are marginal. And 11+ days at 100% on an RTX 3050 is a real thermal/stability risk.
-For detection, **diversity + difficulty beat raw volume** (RAID/M4GT literature).
+Two retrains were built, run, and benchmarked. **Neither beat v2.0.** Full write-up
+in `benchmark_results.md`; summary in `COMPLETION_STATUS.md` Phase 1.6.
 
-### How many MORE quality docs to add
-Sweet spot: add **~250k–500k NEW curated hard/diverse docs** on top of the current
-~261k → a **~500k–750k total pool**. Beyond ~750k a 66M DistilBERT plateaus; more
-data won't move the needle. (For a bigger jump, swap the base to
-`microsoft/deberta-v3-base` or `roberta-base` — stronger, but more compute.)
+### What was done ✅
+- [x] Built a **frozen external benchmark** (`benchmark_samples.json`,
+  `benchmark_detector.py`): 40 AI (Gemini/Claude S5/GPT-5.5/Grok, default+disguised)
+  + 200 human across 5 registers; AUC, per-register FPR, dev/test split, arXiv canary.
+- [x] Trained **v2.1** (RAID adversarial + Ateeqq + pile, 2 epochs). → **FAILED**:
+  benchmark AUC 0.391, FPR 70%. Root cause: **AI-only held-out eval** → `eval_auc=nan`
+  every epoch → FPR never measured → invisible over-flagging.
+- [x] Built **`train_v2_2.py`** (fixed pipeline): balanced two-class multi-register
+  held-out eval + **nan-AUC abort callback** + pre-train two-class assertion +
+  benchmark-leak guard + push safety gate. Verified end-to-end.
+- [x] Trained **v2.2**. Held-out eval is now honest (AUC 0.986, FPR 1.4%) — the
+  methodology bug is fixed — but the frozen benchmark still **FAILED**: AUC 0.458,
+  FPR 56%.
 
-### Curated ~500k pool (balanced ~50/50 AI/human, all HF-loadable)
+### The key learning 🔑
+- The eval methodology is fixed, but the model is a **data problem**: RAID
+  adversarial text **does not transfer** to 2025-model disguised AI, and continued
+  training on it **degrades** v2.0 (catastrophic forgetting). v2.0 (0.911) >> v2.1
+  (0.391) ≈ v2.2 (0.458) on the benchmark.
+- **Held-out ≠ benchmark.** A great held-out number (v2.2: 0.986) told us nothing
+  about real 2025-model text. The frozen benchmark is the only decision gauge.
 
-| Slice | Size | Why |
-|:---|:---:|:---|
-| `liamdugan/raid` (multi-model + **12 adversarial attacks**) | ~150k | Robustness to masked/paraphrased AI (the current blind spot) |
-| M4GT / SemEval-2024 Task 8 (incl. mixed human-machine) | ~100k | Multi-domain/model + patchwork signal |
-| DeepSeek-R1 / reasoning CoT sets (+ matched human) | ~50k | Detect o1 / R1 / Claude-thinking style |
-| `Ateeqq` + arXiv human academic | ~100k | Keep ESL / false-positive rate low |
-| Retained from current pile | ~100k | Stability / guard against catastrophic forgetting |
-
-### Training schedule (RTX 3050 — "1 epoch ≈ 150k")
-1. Cap each epoch to **~150k** (subsample the 500k pool per epoch) → ~8h/epoch, safe thermals.
-2. **2–3 epochs** (rotate subsamples), lr 1–2e-5, fp16, class-balanced, weight_decay 0.01.
-3. Continue-train from v2.0 first (faster); fall back to `distilbert-base-cased` if it won't budge.
-4. **Add real metrics** — accuracy / F1 / AUC / **FPR on a HELD-OUT set** (unseen
-   models + adversarial). This is the success gauge, NOT `eval_loss`.
-5. Re-fit calibration with `fit_calibration.py` on the new held-out set; push
-   **v2.1** to HF and **update the (stale v1.5) model card**.
-
-### Laptop (6 GB RTX 3050) golden rules — ~4.5-5 h total
-1. **Route the cache** — HF silently dumps tens of GB to `C:`. Use
-   `--cache-dir D:\hf_cache` (or set `HF_DATASETS_CACHE` / `HF_HOME`). The script
-   defaults to `./hf_cache` (gitignored) and routes automatically.
-2. **Base = DistilBERT** — continue from v2.0 (default) or `distilbert-base-*`.
-   No RoBERTa-large / Llama on 6 GB.
-3. **No multitasking** while training (no 4K video / games / heavy dev server).
-4. **Batch size:** `--batch-size 8` ≈ 4.5-5.5 GB VRAM (sweet spot); 16 OOMs
-   instantly; eval batch auto-set to 2×. **OOM fallback:** `--batch-size 4
-   --grad-accum 2` (holds 4 in VRAM, trains like effective 8). All wired in `train_v2_1.py`.
-
-### Expected outcome (set expectations)
-- Easy-text accuracy stays ~99% (already saturated — won't visibly improve).
-- Real wins: **much lower false positives on human/ESL** and **much better recall
-  on adversarial / masked / reasoning AI** — i.e. we fix the blind spot, not a
-  vanity metric. Frame the demo around robustness, not raw accuracy.
-
-### Tasks (@sameerreddy)
-- [ ] Build the curation script (merge + balance + dedup the 5 slices → ~500k pool).
-- [ ] Add held-out eval set (unseen models + RAID adversarial) + metrics to the trainer.
-- [ ] Run 2–3 epochs @150k; log accuracy/F1/AUC/FPR per epoch.
-- [ ] Re-fit calibration; push v2.1 to HF; update model card.
+### Decision: training chapter is CLOSED 🚩
+No further retraining (no v2.3). Two honest attempts showed continued training
+degrades v2.0 on the target task, and v2.0 is already our best detector. **v2.0 is
+final for this project.** All remaining effort goes to the agents/product and
+deployment, where the real, defensible value is. AI-detection is framed as one
+calibrated signal (with a "needs human review" band), not a verdict.
 
 ---
 
@@ -140,24 +119,27 @@ data won't move the needle. (For a bigger jump, swap the base to
 
 ## Prioritized 8-day plan
 
-Two tracks run in parallel: **@sameerreddy** owns training; **@technical-monish**
-owns everything else.
+**Training is complete and closed** (v2.0 retained). All remaining work is
+agent/product + deployment — now a single track.
 
-| Day | @sameerreddy (training) | @technical-monish (everything else) |
-|:---|:---|:---|
-| 1–2 | Curate ~500k hard/diverse pool + build held-out eval set | Plagiarism upgrade (fingerprint + semantic + cross-agent dedupe); Alibaba account + Qwen wiring |
-| 2–4 | Run 2–3 epochs @150k; log accuracy/F1/AUC/FPR | Integrity Dashboard (two headline numbers + combined overlay) |
-| 4–5 | Eval v2.1 on adversarial/held-out; re-fit calibration; push to HF + update card | Turnitin-style annotated PDF; citation adds (DOI consistency, retraction check) |
-| 5–6 | Support integration of v2.1; sanity-check scores in the app | Containerize; add Qwen backend for sub-agents |
-| 6–7 | (buffer / optional 2nd run if metrics lag) | Deploy on Alibaba (FC/PAI); Qwen end-to-end; live smoke-test |
-| 7–8 | Final model card + eval writeup for the demo | Real-paper testing (two-column IEEE), edge cases, docs, demo polish |
+| Day | Product + deployment |
+|:---|:---|
+| 1–2 | Orchestrator fix (always surface hard facts); agent-centric report reframe (3-band + "needs human review"); Plagiarism upgrade (fingerprint + semantic + cross-agent dedupe) |
+| 2–4 | Integrity Dashboard (two headline numbers + combined per-paragraph overlay); Alibaba account + Qwen wiring |
+| 4–5 | Turnitin-style annotated PDF; citation adds (DOI consistency, retraction check) |
+| 5–6 | Containerize; add Qwen backend for the sub-agent tasks |
+| 6–7 | Deploy on Alibaba (FC/PAI); Qwen end-to-end; live smoke-test |
+| 7–8 | Real-paper testing (two-column IEEE), edge cases, docs, demo polish |
 
 ---
 
 ## Tracked risks / blind spots
 
-- Fully style-masked whole-document AI can score low from the model alone
-  (RAID-adversarial training + patchwork detection mitigate, not eliminate).
+- **Confirmed, unresolved:** fully style-masked / disguised 2025-model AI evades
+  the detector (v2.0 disguised recall 0%), and RAID retraining did **not** fix it
+  (v2.1/v2.2 failed the benchmark). Mitigation for now: patchwork detection +
+  surfacing the "Uncertain" band for human review, and framing AI-detection as one
+  signal, not a verdict. A real fix needs v2.3 trained on 2025-model disguised data.
 - Plagiarism can't match Turnitin's private student-paper DB — scope to open web
   + open-access scholarly and say so honestly.
 - Free-tier compute limits: torch + crewai + chromadb is heavy; size the Alibaba

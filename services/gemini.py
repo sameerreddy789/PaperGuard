@@ -58,7 +58,14 @@ def call_llm(
     if client is None:
         return None
 
-    config_kwargs: Dict[str, Any] = {"temperature": 0.1}
+    # Verification/verdict tasks want determinism: default temperature 0.0 so the
+    # same paper yields the same claim/similarity/quality verdicts. Override via
+    # PAPERGUARD_LLM_TEMPERATURE if a task ever needs sampling.
+    try:
+        temperature = float(os.getenv("PAPERGUARD_LLM_TEMPERATURE", "0.0"))
+    except ValueError:
+        temperature = 0.0
+    config_kwargs: Dict[str, Any] = {"temperature": temperature}
     if system_instruction:
         config_kwargs["system_instruction"] = system_instruction
     if response_format == "json":

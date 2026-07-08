@@ -87,7 +87,88 @@ per-register FPR checked (arXiv canary):
 back **below** epoch-1's 92.1% even as training loss keeps dropping, the second
 pass is overfitting training-specific patterns — prefer the epoch-1 checkpoint.
 
-## v2.1 (after adversarial/multi-model training) — TBD
+## v2.1 (after adversarial/multi-model training) — FAILED (HARD BLOCK)
 
-_Re-run with `PAPERGUARD_DETECTOR_MODEL=training/paperguard_v2_1` (after re-fitting
-calibration) and fill in the same rows as v2.0 above, plus per-register FPR._
+Trained on 240,988 balanced samples (RAID adversarial + Ateeqq + pile), 2 epochs,
+RTX 3050. Held-out RAID AI-recall: ep1 92.1%, ep2 93.9%. Scored on the SAME frozen
+set + script + env pattern as v2.0. **Result: catastrophic FPR regression on both
+epoch checkpoints. Trips the pre-registered HARD BLOCK. NOT shippable.**
+
+Both epoch checkpoints scored on the SAME frozen set + script + env pattern as
+v2.0, each with its correct tokenizer (see the tokenizer caveat below).
+
+| Metric | v2.0 (deployed) | v2.1 epoch-1 (ckpt-30124) | v2.1 epoch-2 = saved `paperguard_v2_1` |
+|---|---|---|---|
+| **AUC (5-register)** | **0.911** | **0.398** | **0.391** |
+| Overall human FPR (cutoff 50) | 0.5% (1/200) | **100% (200/200)** | **70% (140/200)** |
+| AI recall — disguised | 0% | (all flagged) | 30% |
+| Deploy op point (FPR≤1% dev→test) | recall 36.4% / FPR 0.0% | recall 18.2% / FPR 32.7% | recall 13.6% / FPR 17.3% |
+
+Per-register FPR (saved `paperguard_v2_1`, cutoff 50) — *these are real; see the
+"accuracy vs FPR" correction below*:
+
+| Register | v2.0 FPR | v2.1 saved FPR |
+|---|---|---|
+| arXiv (formal STEM) | 2.5% | **100%** |
+| news | 0% | **77.5%** |
+| informal (Yelp) | 0% | **80%** |
+| student | 0% | **70%** |
+| humanities (Gutenberg) | 0% | **22.5%** |
+
+**What v2.1 actually is:** a model that ranks external human text *above* external
+AI text (AUC < 0.5 on both epochs). It over-flags nearly every modern human
+register (arXiv/news/Yelp/student all 70–100% FPR; only old literary Gutenberg is
+spared-ish at 22.5%) while *passing* the 2025-model disguised AI (scores 35–45%,
+below threshold). It over-fit to RAID-AI surface features that also fire on modern
+human prose but miss casual human-styled AI. **Both epochs are consistently bad
+(AUC 0.40 vs 0.39) — there is no drift, no collapse, no salvageable checkpoint.**
+
+**Root cause — the held-out training eval had NO human class.**
+`metric_for_best_model="auc"` returned `nan` every epoch because the held-out set
+was AI-only (`Only one class present in y_true`). So the 92–94% "held-out recall"
+NEVER measured false positives — the external-distribution FPR blowup was
+invisible during the entire run. `best_model_checkpoint` stayed `null`, so the
+saved `paperguard_v2_1` is just the *last* (epoch-2) weights (confirmed:
+byte-identical MD5 to `checkpoint-60248`).
+
+**Ruled out (not the cause):**
+- *Label/index inversion* — `id2label` is identical in v2.0 and v2.1
+  (`0=ai, 1=human`); detector reads the same slot. And held-out RAID AI-recall is
+  93.9%, so labels are correct on RAID — this is a domain-shift/over-fit failure,
+  not a flipped label.
+- *Miscalibration* — AUC is a monotonic (calibration-invariant) ranking metric;
+  both epochs are < 0.5, so no MIDPOINT/SCALE re-fit can recover them.
+
+**Two corrections to the first-pass reading of these results (both were my error,
+not model behavior):**
+1. *"Epoch-2 collapsed to 100% FPR / constant-AI"* — WRONG. That run pointed at
+   `checkpoint-60248`, which has **no tokenizer files**; `AutoTokenizer` fell back
+   to a mismatched tokenizer → garbage token IDs → saturated "~100% AI on
+   everything." An artifact of the missing tokenizer, not the weights. With the
+   correct tokenizer, epoch-2 = the saved model (AUC 0.391, FPR 70%).
+2. *"The per-register FPR line is a script bug printing 0.0%"* — WRONG, no bug.
+   The `=== By group ===` line reports **accuracy (correct-rate) per group**, not
+   FPR. For a human group, `0.0%` = 0% correct = **100% flagged = 100% FPR**. The
+   numbers were self-consistent all along (correct humans 0+31+8+9+12 = 60/200 →
+   70% FPR, matching the overall line). The arXiv canary works fine.
+
+> **Operational note for v2.2 benchmarking:** raw `checkpoint-*` dirs from the
+> Trainer do **not** contain tokenizer files. Copy `tokenizer.json` +
+> `tokenizer_config.json` into any checkpoint before pointing the benchmark at it,
+> or you'll measure a mismatched-tokenizer artifact (silently — it won't error).
+
+**Decision (per pre-registered criteria):** HARD BLOCK — overall deploy-FPR is
+catastrophically worse than v2.0 on both checkpoints (AUC below random). **v2.1 is
+discarded. v2.0 (`mega_dataset_model_v2`) remains the production model; the HF
+deployment is NOT overwritten.**
+
+**For v2.2 (the actual fix):**
+- The training eval set MUST contain **both classes** (balanced human + AI from
+  held-out registers) so AUC/FPR are real numbers and early-stopping can select on
+  them. If AUC comes back `nan`, that must raise a loud training-time alarm — not
+  be silently tolerated (this would have caught the failure at epoch 1, not after
+  5+ GPU-hours + external audit).
+- Add diverse human negatives (news, informal, student, humanities — not just
+  pile) to the **training** set, not only the eval, so the model can't satisfy the
+  objective by flagging modern human prose.
+- Re-check the arXiv canary (and all five registers) every epoch.

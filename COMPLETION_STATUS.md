@@ -1,204 +1,112 @@
-# PaperGuard — Completion Status
+# PaperGuard — Completion Status (done work)
 
-> **UPDATE THIS FILE BEFORE EVERY PUSH.** Single source of truth for project state.
+> **Workflow:** this file tracks **completed** work. Planned / future work lives
+> in `TASKS.md`. When a task in `TASKS.md` is finished, move it here.
+> (The old `IMPLEMENTATION_PLAN.md` has been removed.)
 
 **Last Updated:** 2026-07-08
-**Updated By:** AI detection is now model-only (LLM safety net removed); Gemini reserved for orchestration + citation/quality/plagiarism/reference tasks
 
 ---
 
-## Scope
+## Scope & goal
 
-PaperGuard targets academic integrity verification for **both** student work
-**and** research-paper submissions (IEEE, ACM, Elsevier, etc.). Language and
-framing throughout is research-grade, not student-only.
+PaperGuard is an academic-integrity checker for student work **and** research
+papers (IEEE/ACM/Elsevier). It mimics Turnitin's two headline outputs — an
+**AI-writing %** and a **Similarity/plagiarism %** — and adds **citation claim
+verification** as a differentiator.
 
-## Team
+## Architecture (current)
 
-- **@vediumsameer**: Local AI-detection model training (RTX 3050). v2.0 mega
-  model trained and pushed to `vediumsameer/paperguard-ai-detector`.
-- **@monishreddy**: Agents, API integrations, orchestration, Streamlit UI.
-
----
-
-## Key Architectural Decisions (current)
-
-1. **Orchestration = CrewAI** (agents-as-tools pattern). Supersedes the earlier
-   "custom orchestrator, no framework" note in `IMPLEMENTATION_PLAN.md`.
-   Deterministic work (API lookups, PyTorch inference, math) stays as tools;
-   the LLM does reasoning/synthesis/conflict-resolution only.
-2. **AI detection = model-only.** The calibrated PaperGuard detector + embedding
-   stylometry do AI detection; no LLM is used for it. (The former Detector +
-   Linguistic + Conflict Resolver "safety net" was removed.)
-3. **Detector model** = `vediumsameer/paperguard-ai-detector` (v2.0 mega
-   weights), loaded locally via `transformers`. Label index 0 = AI, 1 = Human.
-4. **Reasoning LLM** = Gemini (free tier), pluggable so Qwen can drop in later.
+- **CrewAI** orchestrates a crew of specialist agents (agents-as-tools). All
+  fact-lookups/computation are deterministic tools; the LLM only reasons/
+  synthesises. Crew LLM is provider-configurable (Gemini today; Qwen/DashScope
+  ready for Alibaba).
+- **AI detection = model-only** — the fine-tuned PaperGuard detector (calibrated
+  logit margin) + embedding-based stylometric patchwork detection. No LLM used
+  for detection.
+- **Other layers** use the LLM for reasoning only: citation claim checks, quality
+  prose review, plagiarism similarity, reference parsing.
 
 ---
 
-## Overall Progress
+## Completed
 
-| Phase | Status | Notes |
+### Phase 1 — Core + services (✅)
+| Item | File |
+| :--- | :--- |
+| PDF extraction (pymupdf4llm) | `core/pdf_parser.py` |
+| Text chunker (sections→paragraphs→sentences) | `core/text_chunker.py` |
+| Reference parser (LLM + **improved heuristic**: APA/IEEE/numeric title+author+DOI) | `core/reference_parser.py` |
+| Service wrappers (Gemini/CrossRef/Semantic Scholar/Serper) + JSON cache | `services/*.py` |
+| Data models (report, reference) | `models/*.py` |
+
+### Phase 1.5 — Detector model (✅)
+- v2.0 "mega" DistilBERT trained and **deployed** to HF
+  `vediumsameer/paperguard-ai-detector` (`eval_loss=0.0003`). Training pipeline:
+  `train_mega_dataset.py`. OOD validation: `ood_stress_test.py`.
+- **Note:** the near-zero eval loss reflects overfitting to easy data → softmax
+  saturation. See TASKS.md for the planned retraining on adversarial/multi-model
+  data.
+
+### Phase 2 — Base agents (✅)
+| Agent | File |
+| :--- | :--- |
+| Citation verification (existence + 4-tier claim support) | `agents/citation_agent.py` |
+| Writing quality (structure + readability + prose) | `agents/quality_agent.py` |
+| Plagiarism (Serper + scholarly + LLM similarity) | `agents/plagiarism_agent.py` |
+
+Shared foundation `agents/base.py` (lazy imports, `.pdf/.md/.txt` loading, CLI).
+
+### Phase 2.5 — AI detection (model-only) (✅)
+| Component | File | Notes |
+| :--- | :--- | :--- |
+| Detector (calibrated logit margin) | `agents/detector_agent.py` | Softmax is saturated; we score off the margin. Clean AI ~76%, academic ~71%, human/ESL ~10% (was 0% for all). `embed_text` for stylometry. |
+| AI-detection engine (heatmap + patchwork) | `agents/ai_detection.py` | Model-only per-paragraph heatmap + document verdict. |
+| Stylometric patchwork detection | `agents/ai_detection.py` | Robust median/MAD embedding-outlier flag for mixed authorship ("Frankenstein"). Validated. |
+| Calibration re-fit tool | `fit_calibration.py` | Logistic fit of MIDPOINT/SCALE from labelled margins (`--self-test` validated). |
+
+> **Decision (2026-07-08): removed the LLM "safety net"** from AI detection.
+> Deleted `linguistic_agent.py`, `conflict_resolver.py`, `ai_detection_agent.py`,
+> `safety_net.py`. The calibrated model + patchwork are the detection signal;
+> Gemini/LLM is reserved for orchestration and the other tasks.
+
+### Phase 3 — CrewAI orchestrator (✅)
+- `agents/orchestrator.py`: crew of 4 specialists + editor, with a deterministic
+  engine fallback and cross-agent conflict notes; `agents/crew_tools.py` wraps
+  logic as tools; `main.py` CLI. Crew LLM configurable for Qwen/DashScope.
+- Validated end-to-end (engine path) on the sample paper.
+
+### Phase 4 — Streamlit UI (✅ built)
+- `app.py`: per-paragraph AI heatmap + patchwork flags, 4-tier citation table,
+  plagiarism/quality panels, executive summary, **PDF + JSON export**, sidebar
+  (keys, detector model, crew toggle), `@st.cache_data`. Boots clean.
+- Remaining: live browser smoke-test with a real upload.
+
+### Cross-cutting done
+- Migrated off the EOL `google.generativeai` SDK to **`google-genai`**;
+  `services/gemini.py` is the single integration point; model unified via
+  `PAPERGUARD_GEMINI_MODEL`.
+- Improved heuristic reference parser (real titles → citation lookups work
+  without an LLM key; validated: 3 real refs resolved, 1 fabricated flagged).
+- Environment consolidated into `.venv` (torch, transformers, crewai, streamlit).
+- Cleanup: removed duplicate `core/citation_agent.py`, superseded trainers
+  (v1/v1.5), `test_checkpoint.py`, stale `test_model.py`, and the removed
+  AI-detection LLM modules.
+
+---
+
+## What's next
+
+See **`TASKS.md`** for the prioritized 8-day plan: plagiarism upgrade
+(fingerprint + semantic), one focused detector retraining run on adversarial/
+multi-model/CoT data, the Integrity Dashboard, and **Alibaba Cloud deployment
+with Qwen**.
+
+## API keys
+
+| API | Needed? | Notes |
 | :--- | :---: | :--- |
-| Phase 1: Core + services + caching | ✅ Complete | pdf/text/reference + CrossRef/S2/Serper/Gemini + cache |
-| Phase 1.5: Local AI-detection model | ✅ Complete | v2.0 mega model trained + on HF Hub |
-| Phase 2: Four base agents (standalone) | ✅ Complete | citation / quality / ai_detection / plagiarism |
-| Phase 2.5: AI detection (model-only) | ✅ Complete | Calibrated detector + embedding patchwork; LLM safety net removed |
-| Phase 3: CrewAI orchestrator + conflict resolution | ✅ Complete | Crew built + engine fallback; end-to-end Report validated (engine path) |
-| Phase 4: Streamlit UI | ✅ Built | `app.py`: heatmap (+patchwork), citations, panels, PDF/JSON export; only live browser smoke-test remains |
-| Phase 5: Polish & deploy | ⬜ Not Started | |
-
-**Legend:** ✅ Complete · 🟡 In Progress · ⬜ Not Started · ❌ Blocked
-
----
-
-## Phase 1 — Core Infrastructure (Complete)
-
-| Task | File | Status |
-| :--- | :--- | :---: |
-| PDF extraction (pymupdf4llm) | `core/pdf_parser.py` | ✅ |
-| Text chunker (sections→paragraphs→sentences) | `core/text_chunker.py` | ✅ |
-| Reference parser (LLM + heuristic) | `core/reference_parser.py` | ✅ |
-| Gemini wrapper | `services/gemini.py` | ✅ |
-| CrossRef / Semantic Scholar / Serper wrappers | `services/*.py` | ✅ |
-| File-based JSON cache | `services/cache.py` | ✅ |
-| Data models (report, reference) | `models/*.py` | ✅ |
-
----
-
-## Phase 1.5 — Local AI-Detection Model (Complete, @vediumsameer)
-
-| Task | File | Status | Notes |
-| :--- | :--- | :---: | :--- |
-| Multi/mega-dataset training pipeline | `train_mega_dataset.py` | ✅ | Opus distill + Ateeqq + AI-text-detection-pile |
-| Fine-tuned DistilBERT (v2.0) | — | ✅ | eval_loss ~0.0003 |
-| Push to HF Hub | — | ✅ | `vediumsameer/paperguard-ai-detector` |
-| OOD validation gauntlet | `ood_stress_test.py` | ✅ | Exposed softmax saturation → motivated the logit-margin calibration |
-
-> The OOD stress test showed the raw model collapses on ESL and style-masked
-> text. This is the reason the Detector is paired with the Linguistic agent.
-
----
-
-## Phase 2 — Base Agents (Complete, @monishreddy)
-
-| Agent | File | Status |
-| :--- | :--- | :---: |
-| Citation Verification (existence + claim, 4-tier) | `agents/citation_agent.py` | ✅ |
-| Writing Quality (structure + readability + prose) | `agents/quality_agent.py` | ✅ |
-| Plagiarism (Serper + scholarly + LLM similarity) | `agents/plagiarism_agent.py` | ✅ |
-
-> Note: the old standalone `ai_detection_agent.py` (LLM classifier + burstiness)
-> was removed — AI detection now lives in the model-only engine (Phase 2.5).
-
-Shared foundation: `agents/base.py` (lazy imports, `.pdf/.md/.txt` loading,
-section/reference helpers, `BaseAgent`, `run_cli`). All agents degrade
-gracefully without API keys.
-
----
-
-## Phase 2.5 — AI Detection (model-only)
-
-| Component | File | Status | Notes |
-| :--- | :--- | :---: | :--- |
-| Detector (calibrated logit margin) | `agents/detector_agent.py` | ✅ | Lazy model load, graceful degradation, `embed_text` for stylometry |
-| AI-detection engine (heatmap + patchwork) | `agents/ai_detection.py` | ✅ | Model-only; per-paragraph heatmap + document verdict |
-| Stylometric patchwork detection (embeddings) | `agents/ai_detection.py` | ✅ | Flags "Frankenstein" mixed-authorship paragraphs via robust median/MAD embedding outliers |
-
-> **Decision (2026-07-08): LLM safety net removed.** Since the calibrated model
-> is a reliable signal on its own, AI detection no longer uses an LLM. The
-> Detector + Linguistic + Conflict Resolver design (and `linguistic_agent.py`,
-> `conflict_resolver.py`, `ai_detection_agent.py`) were deleted. Gemini is now
-> used only for orchestration and the other tasks.
->
-> **Detector via logit-margin calibration.** The v2.0 model's *softmax* is
-> saturated (reports ~0% AI even on real AI text), but the raw logit margin
-> (human-ai) separates classes: clean/academic AI ~6-8, human ~16-18. Scoring off
-> a logistic calibration of that margin flags clean AI ~76% and academic AI ~71%
-> while keeping human/ESL text ~10%. Constants are env-overridable; `fit_calibration.py`
-> re-fits them on a labelled set.
->
-> **Remaining blind spot:** slang/style-masked AI can still read as human to the
-> model. The embedding patchwork check partially mitigates this when such text is
-> pasted into otherwise-human writing.
-
----
-
-## Phase 3 — CrewAI Orchestrator + Conflict Resolution (In Progress)
-
-| Task | File | Status |
-| :--- | :--- | :---: |
-| Verify CrewAI installs cleanly in the env | `.venv` | ✅ (crewai 1.15.1, no conflicts) |
-| Wrap deterministic logic as CrewAI tools | `agents/crew_tools.py` | ✅ |
-| Build the crew (agents + tasks) | `agents/orchestrator.py` | ✅ (4 specialists + editor) |
-| Cross-agent conflict rules (plag↔citation, ai↔quality) | `agents/orchestrator.py` | ✅ |
-| CLI entry point | `main.py` | ✅ |
-| Live crew run with a valid Gemini key | — | ⬜ (engine path validated; crew kickoff needs a valid `GEMINI_API_KEY`) |
-
-> Environment consolidated into a single `.venv` (Python 3.10) with the full
-> stack: torch 2.12.1 (CPU), transformers 5.13.0, crewai 1.15.1, google-generativeai,
-> streamlit. `requirements.txt` now installs the whole app.
->
-> **Deployment note:** the full stack (torch + crewai + chromadb + onnxruntime)
-> is heavy for free Streamlit Community Cloud. Phase 5 may need to serve the
-> detector via the HF Inference API (instead of local torch) or use a larger host.
-
----
-
-## Next Session (tomorrow) — planned work
-
-See `IMPLEMENTATION_PLAN.md` → "Pending Work / Next-Session Backlog" for detail.
-
-| # | Item | File(s) | Priority |
-| :--- | :--- | :--- | :---: |
-| A | Streamlit UI + **PDF export** — **DONE**; only live browser smoke-test remains | `app.py` | done |
-| B1 | Embedding-based stylometric "Frankenstein" patchwork detection — **DONE** | `agents/detector_agent.py`, `agents/safety_net.py` | done |
-| B2 | Calibration re-fit tooling (`fit_calibration.py`) — **DONE** (full dataset fit = 1-cmd follow-up) | `fit_calibration.py` | done |
-| E | Model name unified + **migrated to `google-genai` SDK** (EOL SDK removed) — **DONE** | `core/reference_parser.py`, `services/gemini.py` | done |
-| C | Live CrewAI crew run (needs valid `GEMINI_API_KEY`) | `.env` | pending |
-| D | Real-paper testing + deployment (HF Inference API for detector on free hosts) | — | pending |
-
----
-
-## Phase 4 — Streamlit UI (Not Started)
-
-Upload → progress → dashboard (AI heatmap with override reasoning, citation
-table, plagiarism/quality panels) → PDF export → disclaimers → `@st.cache_data`.
-
----
-
-## Phase 5 — Polish & Deploy (Not Started)
-
-Real-paper testing, edge cases, rate limiting/retries, Streamlit Cloud deploy,
-docs, billing alerts.
-
----
-
-## Recent Cleanup
-
-- Removed duplicate legacy `core/citation_agent.py` (superseded by `agents/citation_agent.py`).
-- Removed superseded trainers `train_ai_detector.py` (v1), `train_multi_dataset.py` (v1.5) and ephemeral `test_checkpoint.py` (all preserved in git history).
-- Hardened `.gitignore` (`hf_cache/`, `*.arrow`, `*.safetensors`).
-- Added `torch`, `transformers`, `accelerate` to `requirements.txt`.
-
----
-
-## Known Issues / Notes
-
-| Issue | Severity | Status | Notes |
-| :--- | :---: | :---: | :--- |
-| Detector v2.0 softmax saturation (0% AI on all inputs) | High | ✅ Resolved | Now scores off calibrated logit margin: clean AI ~76%, academic AI ~71%, human ~10%. Calibration constants heuristic; fit on a labelled dev set for production |
-| Invalid `GEMINI_API_KEY` in `.env` | High | ⬜ Open | Linguistic agent + CrewAI crew need a valid key; without it AI detection is detector-only |
-| Env consolidated into `.venv` | — | ✅ Resolved | Full stack installs from `requirements.txt` |
-| Full stack heavy for free Streamlit Cloud | Medium | ⬜ Open | Consider HF Inference API for the detector at deploy time |
-
----
-
-## API Keys Status
-
-| API | Key needed? | Free tier |
-| :--- | :---: | :--- |
-| Gemini (AI Studio) | Yes | 15–30 RPM |
-| Serper | Yes | 2,500 credits/month |
-| Semantic Scholar | Optional | 1 req/sec (key) |
-| CrossRef | No | Unlimited (polite pool) |
+| Gemini (or Qwen/DashScope) | for LLM tasks + crew | Currently no valid key in `.env` |
+| Serper | for web plagiarism search | optional |
+| Semantic Scholar | optional | improves abstract retrieval |
+| CrossRef | no key | unlimited |

@@ -79,7 +79,16 @@ def _run_crew() -> Optional[str]:
     ``None`` if CrewAI / the LLM is unavailable or the run fails (the caller
     then falls back to the deterministic engine path).
     """
-    if not os.getenv("GEMINI_API_KEY"):
+    # The crew can run on any LiteLLM-supported provider. Gemini by default, but
+    # Alibaba DashScope/Qwen (the deployment target) works by setting
+    # PAPERGUARD_CREW_MODEL=dashscope/qwen-plus (+ DASHSCOPE_API_KEY), optionally
+    # with PAPERGUARD_CREW_API_BASE for the OpenAI-compatible endpoint.
+    if not (
+        os.getenv("GEMINI_API_KEY")
+        or os.getenv("DASHSCOPE_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("PAPERGUARD_CREW_API_BASE")
+    ):
         return None
     try:
         from crewai import Agent, Crew, LLM, Process, Task
@@ -92,7 +101,11 @@ def _run_crew() -> Optional[str]:
 
     try:
         model_name = os.getenv("PAPERGUARD_CREW_MODEL", "gemini/gemini-2.5-flash")
-        llm = LLM(model=model_name, temperature=0.2)
+        llm_kwargs: Dict[str, Any] = {"model": model_name, "temperature": 0.2}
+        crew_api_base = os.getenv("PAPERGUARD_CREW_API_BASE")
+        if crew_api_base:
+            llm_kwargs["base_url"] = crew_api_base
+        llm = LLM(**llm_kwargs)
 
         citation_agent = Agent(
             role="Citation Integrity Specialist",

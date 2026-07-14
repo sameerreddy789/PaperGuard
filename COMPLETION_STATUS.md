@@ -4,7 +4,7 @@
 > in `TASKS.md`. When a task in `TASKS.md` is finished, move it here.
 > (The old `IMPLEMENTATION_PLAN.md` has been removed.)
 
-**Last Updated:** 2026-07-08
+**Last Updated:** 2026-07-14
 
 ---
 
@@ -115,7 +115,34 @@ Shared foundation `agents/base.py` (lazy imports, `.pdf/.md/.txt` loading, CLI).
 - `app.py`: per-paragraph AI heatmap + patchwork flags, 4-tier citation table,
   plagiarism/quality panels, executive summary, **PDF + JSON export**, sidebar
   (keys, detector model, crew toggle), `@st.cache_data`. Boots clean.
-- Remaining: live browser smoke-test with a real upload.
+- Superseded/extended by Phase 5 below (Integrity Dashboard, combined overlay,
+  annotated PDF).
+
+### Phase 5 — Agent-centric hardening + Turnitin-parity UI + deployment (✅)
+
+Closed out the full remaining `TASKS.md` backlog in one pass: structured hard
+facts, a genuinely multi-signal plagiarism check, citation retraction/DOI
+checks, a real Integrity Dashboard, an annotated-PDF export, a second LLM
+backend, and a verified container.
+
+| Item | File(s) | Notes |
+| :--- | :--- | :--- |
+| Structured hard facts | `models/report.py`, `agents/orchestrator.py` | `Report.conflict_notes` (fabricated/retracted citation counts, AI-vs-structure conflicts) and `Report.headline_metrics` (deterministic AI%/Similarity%/Citation-Health/Quality + bands) are now **always** populated by `_build_report`, independent of whether the LLM crew ran — previously these facts only reached the user if the LLM chose to mention them in its prose summary. |
+| Plagiarism: 3-signal scoring + dedupe | `agents/plagiarism_agent.py` | Each candidate match is now scored by (a) deterministic word-shingle **Jaccard n-gram overlap** (no LLM/key needed, catches verbatim copying), (b) **semantic cosine similarity** reusing `DetectorAgent.embed_text` (no new model/dependency), (c) the existing LLM judgment — the best available score wins, so plagiarism detection degrades gracefully instead of going fully dark without a Gemini key. Added `_looks_quoted_and_cited`: a paragraph that is both quoted and matches an already-extracted `Reference` is **downgraded** (not counted as plagiarism) rather than flagged — cross-agent dedupe with the citation agent. |
+| Citation: retraction + DOI-consistency | `services/crossref.py`, `agents/citation_agent.py` | Added `get_retraction_notices` (reads CrossRef's `message['updated-by']`, confirmed against a live API call on a real retracted paper — Wakefield's 1998 Lancet MMR paper). Added `_check_retraction` and `_check_doi_consistency` (title/year/first-author vs. the resolved CrossRef record) to every reference; both feed into `retracted_count`/`doi_mismatch_count`, new findings, a citation-health penalty, and `status="failed"` on any retraction. |
+| Integrity Dashboard + combined overlay | `app.py` | `render_dashboard` gives the two Turnitin-style headline numbers (AI% / Similarity%) visual priority with band coloring, plus a "Hard facts" panel rendering `conflict_notes`. New `render_overlay` tab joins the AI-detection heatmap with plagiarism matches (by normalized paragraph **text**, not index — the two agents select different paragraph subsets) and stylometric outliers into one per-paragraph view with inline badges. `build_pdf` now reads the same `headline_metrics`/`conflict_notes` fields so the PDF and UI never disagree. |
+| Annotated PDF export | `core/pdf_parser.py`, `app.py` | New `highlight_pdf` opens the **original** uploaded PDF bytes with PyMuPDF (`fitz`) and highlights flagged spans in place via `page.search_for` + `add_highlight_annot` — deliberately avoids rebuilding a full text-to-bbox pipeline (pymupdf4llm's Markdown extraction discards that). `spans_from_report` builds the highlight list from likely-AI paragraphs, flagged plagiarism matches, and patchwork outliers. Degrades gracefully (reports a `not_found` count for spans that don't re-locate, e.g. due to PDF text reflow). |
+| Qwen/DashScope LLM backend | `services/dashscope_llm.py`, `services/llm.py`, `agents/base.py`, `core/reference_parser.py` | New OpenAI-compatible Qwen client (`services/dashscope_llm.py`) with the identical `call_llm`/`call_llm_json` contract as `services/gemini.py`. New `services/llm.py` selects between them via `PAPERGUARD_LLM_PROVIDER` (`auto`/`gemini`/`dashscope`; auto prefers DashScope only if it's the *only* key set). `agents.base.get_llm()` now returns this selector, so every existing sub-agent call site (citation/plagiarism/quality/reference parsing) works unchanged on either backend. (The crew-level LLM, `agents/orchestrator.py`, was already provider-agnostic via CrewAI/LiteLLM's `PAPERGUARD_CREW_MODEL`.) |
+| Containerization | `Dockerfile`, `.dockerignore`, `DEPLOYMENT.md` | CPU-only PyTorch (explicit `--index-url .../whl/cpu` layer, overridable for GPU builds), non-root user, `$PORT`-driven, `HEALTHCHECK` against Streamlit's `/_stcore/health`. **Actually built and run in this environment**: `docker build` succeeded (827MB image), `docker run` started the container, and both `GET /` and `GET /_stcore/health` returned HTTP 200 while Docker's own `HEALTHCHECK` independently reported the container as `(healthy)`. `DEPLOYMENT.md` documents the ACR push + Function Compute 3.0 / PAI-EAS / ECS deployment steps and a live smoke-test checklist. |
+
+**Verification methodology used throughout Phase 5** (not just written and
+assumed correct): live CrossRef API calls against a real retracted DOI;
+offline unit checks of the Jaccard/cosine/dedupe math with assertions; a
+synthetic PDF built with `fitz` to prove `highlight_pdf` actually finds and
+annotates real text; 7 explicit provider-selection scenarios for the LLM
+router; and a real `docker build && docker run` with HTTP health checks against
+the running container. All temporary verification scripts were deleted after
+use; none were committed.
 
 ### Cross-cutting done
 - Migrated off the EOL `google.generativeai` SDK to **`google-genai`**;
@@ -136,16 +163,19 @@ Shared foundation `agents/base.py` (lazy imports, `.pdf/.md/.txt` loading, CLI).
 
 ## What's next
 
-Detector retraining is **done and closed** (v2.0 is final; v2.1/v2.2 failed the
-benchmark — Phase 1.6). See **`TASKS.md`** for the remaining plan: agent-centric
-report improvements, plagiarism upgrade (fingerprint + semantic), the Integrity
-Dashboard, and **Alibaba Cloud deployment with Qwen**.
+Detector retraining is **done and closed** (Phase 1.6) and the full
+agent/product backlog is **done** (Phase 5). The only thing left is **executing
+the live Alibaba Cloud deployment** — the container is built and locally
+verified, but the actual ACR push / Function Compute or PAI-EAS setup / live
+smoke-test require Alibaba account credentials not available in this
+environment. See **`TASKS.md`** ("Remaining: execute the live Alibaba Cloud
+deployment") and **`DEPLOYMENT.md`** for the exact steps.
 
 ## API keys
 
 | API | Needed? | Notes |
 | :--- | :---: | :--- |
-| Gemini (or Qwen/DashScope) | for LLM tasks + crew | Currently no valid key in `.env` |
-| Serper | for web plagiarism search | optional |
+| Gemini **or** DashScope (Qwen) | for LLM tasks + crew | Set either `GEMINI_API_KEY` or `DASHSCOPE_API_KEY`; `services/llm.py` auto-selects. Currently no valid key in `.env`. See `.env.example`. |
+| Serper | for web plagiarism search | optional (n-gram + semantic similarity still work without it) |
 | Semantic Scholar | optional | improves abstract retrieval |
-| CrossRef | no key | unlimited |
+| CrossRef | no key | unlimited; also powers retraction + DOI-consistency checks |

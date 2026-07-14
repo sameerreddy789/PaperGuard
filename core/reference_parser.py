@@ -15,7 +15,9 @@ from pydantic import ValidationError
 # Adding parent dir to path to allow absolute imports when running as script
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.reference import Reference
-from services import gemini as gemini_service
+# Provider-agnostic (Gemini or Qwen/DashScope, see services/llm.py) rather than
+# hardcoding Gemini, so reference extraction also runs on the Alibaba backend.
+from services import llm as gemini_service
 
 class ReferenceParser:
     """
@@ -29,12 +31,14 @@ class ReferenceParser:
         Args:
             api_key: Optional Gemini API Key.
         """
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
-        # LLM calls are routed through services.gemini (the single google-genai
-        # integration point). If an explicit key is passed, expose it via env so
+        # LLM calls are routed through services.llm, which picks Gemini or
+        # Qwen/DashScope based on which key is configured (see services/llm.py).
+        # An explicit api_key argument is assumed to be a Gemini key (the
+        # historical default for this constructor) and is exposed via env so
         # the shared client picks it up.
         if api_key:
             os.environ["GEMINI_API_KEY"] = api_key
+        self.api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("DASHSCOPE_API_KEY")
         self.llm_enabled = bool(self.api_key)
 
     def parse_references(self, references_text: str) -> List[Reference]:

@@ -169,6 +169,7 @@ class CitationAgent(BaseAgent):
 
         for idx, ref in enumerate(references, start=1):
             existence = self._check_existence(ref)
+            crossref_msg = existence.get("crossref_message")
             entry: Dict[str, Any] = {
                 "index": idx,
                 "title": ref.title,
@@ -182,6 +183,8 @@ class CitationAgent(BaseAgent):
                 "claim_reasoning": None,
                 "abstract_available": False,
                 "in_text_context_found": False,
+                "doi_consistency": self._check_doi_consistency(ref, crossref_msg),
+                "retraction": self._check_retraction(crossref_msg),
             }
 
             if not existence["exists"]:
@@ -224,7 +227,13 @@ class CitationAgent(BaseAgent):
     # Existence checking
     # ------------------------------------------------------------------ #
     def _check_existence(self, ref: Reference) -> Dict[str, Any]:
-        """Return {'exists': bool, 'source': str, 'resolved_doi': Optional[str]}."""
+        """Return {'exists','source','resolved_doi','crossref_message'}.
+
+        ``crossref_message`` (the raw CrossRef work object) is kept when
+        available so DOI-consistency and retraction checks can reuse it
+        without a second network call (the CrossRef service layer already
+        caches, but this avoids the extra lookup/parse entirely).
+        """
         # 1. DOI -> CrossRef (authoritative existence check, no key needed).
         if ref.doi:
             try:
@@ -232,9 +241,13 @@ class CitationAgent(BaseAgent):
             except Exception:
                 data = None
             if data and data.get("message"):
-                return {"exists": True, "source": "crossref_doi", "resolved_doi": ref.doi}
+                return {
+                    "exists": True, "source": "crossref_doi", "resolved_doi": ref.doi,
+                    "crossref_message": data["message"],
+                }
             # DOI present but did not resolve -> strong fabrication signal.
-            return {"exists": False, "source": "crossref_doi_404", "resolved_doi": None}
+            return {"exists": False, "source": "crossref_doi_404", "resolved_doi": None,
+                    "crossref_message": None}
 
         # 2. No DOI -> CrossRef bibliographic search by title (+ author).
         author = _first_author_lastname(ref)
@@ -244,9 +257,10 @@ class CitationAgent(BaseAgent):
             )
         except Exception:
             search = None
-        resolved = self._match_crossref_search(ref, search)
+        resolved, resolved_msg = self._match_crossref_search(ref, search)
         if resolved:
-            return {"exists": True, "source": "crossref_title", "resolved_doi": resolved}
+            return {"exists": True, "source": "crossref_title", "resolved_doi": resolved,
+                    "crossref_message": resolved_msg}
 
         # 3. Semantic Scholar title search as a secondary source.
         try:
@@ -255,22 +269,94 @@ class CitationAgent(BaseAgent):
             s2 = None
         if s2 and _title_similarity(ref.title, s2.get("title", "")) >= _TITLE_MATCH_THRESHOLD:
             resolved_doi = (s2.get("externalIds") or {}).get("DOI")
-            return {"exists": True, "source": "semantic_scholar_title", "resolved_doi": resolved_doi}
+            return {"exists": True, "source": "semantic_scholar_title",
+                    "resolved_doi": resolved_doi, "crossref_message": None}
 
-        return {"exists": False, "source": "no_match", "resolved_doi": None}
+        return {"exists": False, "source": "no_match", "resolved_doi": None,
+                "crossref_message": None}
 
     def _match_crossref_search(
         self, ref: Reference, search: Optional[Dict[str, Any]]
-    ) -> Optional[str]:
-        """Return a matching DOI from a CrossRef title-search response, if any."""
+    ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Return (matching DOI, raw CrossRef item) from a title-search response."""
         if not search:
-            return None
+            return None, None
         items = (search.get("message") or {}).get("items") or []
         for item in items:
             item_title = (item.get("title") or [""])[0]
             if _title_similarity(ref.title, item_title) >= _TITLE_MATCH_THRESHOLD:
-                return item.get("DOI")
+                return item.get("DOI"), item
+        return None, None
+
+    # ------------------------------------------------------------------ #
+    # DOI metadata consistency + retraction checks (new)
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _crossref_year(msg: Dict[str, Any]) -> Optional[int]:
+        for key in ("published-print", "published-online", "published", "issued"):
+            parts = ((msg.get(key) or {}).get("date-parts") or [[]])[0]
+            if parts:
+                return parts[0]
         return None
+
+    @staticmethod
+    def _crossref_authors_lastnames(msg: Dict[str, Any]) -> List[str]:
+        return [
+            a.get("family", "").strip()
+            for a in (msg.get("author") or [])
+            if a.get("family")
+        ]
+
+    def _check_doi_consistency(
+        self, ref: Reference, crossref_message: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Compare the paper's cited metadata (title/year/first-author) against
+        what CrossRef actually has on record for the resolved DOI. A mismatch
+        suggests the citation was tampered with, mis-transcribed, or points at
+        the wrong DOI entirely (a subtler integrity issue than a NOT_FOUND ref).
+        """
+        result = {"checked": False, "consistent": True, "mismatches": []}
+        if not crossref_message:
+            return result
+        result["checked"] = True
+        mismatches: List[str] = []
+
+        cr_title = (crossref_message.get("title") or [""])[0]
+        if ref.title and cr_title and _title_similarity(ref.title, cr_title) < _TITLE_MATCH_THRESHOLD:
+            mismatches.append(
+                f"title differs from CrossRef record ('{cr_title[:80]}')"
+            )
+
+        cr_year = self._crossref_year(crossref_message)
+        if ref.year and cr_year and abs(ref.year - cr_year) > 1:
+            mismatches.append(f"year {ref.year} differs from CrossRef year {cr_year}")
+
+        cited_lastname = _first_author_lastname(ref)
+        cr_lastnames = self._crossref_authors_lastnames(crossref_message)
+        if cited_lastname and cr_lastnames:
+            if not any(
+                _title_similarity(cited_lastname, cr_name) >= 0.8
+                for cr_name in cr_lastnames
+            ):
+                mismatches.append(
+                    f"first author '{cited_lastname}' not found among CrossRef "
+                    f"authors ({', '.join(cr_lastnames[:3])})"
+                )
+
+        result["mismatches"] = mismatches
+        result["consistent"] = not mismatches
+        return result
+
+    def _check_retraction(self, crossref_message: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Check CrossRef's ``updated-by`` field for a retraction notice."""
+        if not crossref_message:
+            return {"checked": False, "retracted": False, "notices": []}
+        try:
+            notices = self._crossref.get_retraction_notices(crossref_message)
+        except Exception:
+            notices = []
+        return {"checked": True, "retracted": bool(notices), "notices": notices}
 
     # ------------------------------------------------------------------ #
     # Abstract retrieval
@@ -377,6 +463,12 @@ class CitationAgent(BaseAgent):
         not_found = tier_counts[NOT_FOUND]
         unverifiable = tier_counts[PARTIALLY_VERIFIED] + tier_counts[EXISTENCE_ONLY]
         contradicts = [r for r in results if r["claim_verdict"] == CONTRADICTS]
+        retracted = [r for r in results if (r.get("retraction") or {}).get("retracted")]
+        doi_mismatches = [
+            r for r in results
+            if (r.get("doi_consistency") or {}).get("checked")
+            and not (r.get("doi_consistency") or {}).get("consistent")
+        ]
 
         # Citation health: existence-weighted + claim-support bonus, 0-100.
         exists_count = total - not_found
@@ -403,6 +495,22 @@ class CitationAgent(BaseAgent):
                     f"Ref #{r['index']} may not support the claim it is cited for "
                     f"(abstract appears to contradict usage)."
                 )
+        if retracted:
+            for r in retracted:
+                labels = ", ".join(
+                    n.get("label", n.get("type", "retraction"))
+                    for n in (r["retraction"].get("notices") or [])
+                )
+                findings.append(
+                    f"Ref #{r['index']} (\"{r['title']}\") has been RETRACTED "
+                    f"per CrossRef ({labels}) - citing it is a serious integrity concern."
+                )
+        if doi_mismatches:
+            for r in doi_mismatches:
+                issues = "; ".join(r["doi_consistency"]["mismatches"])
+                findings.append(
+                    f"Ref #{r['index']} metadata mismatch vs. CrossRef record: {issues}."
+                )
         if tier_counts[VERIFIED]:
             findings.append(f"{tier_counts[VERIFIED]} reference(s) fully verified (exist + claim supported).")
 
@@ -419,12 +527,19 @@ class CitationAgent(BaseAgent):
             findings.append("All references processed; no fabrication signals detected.")
 
         # Status
-        if not_found or contradicts:
+        if not_found or contradicts or retracted:
             status = "failed"
-        elif pattern_flag or unverifiable:
+        elif pattern_flag or unverifiable or doi_mismatches:
             status = "warning"
         else:
             status = "passed"
+
+        # Retraction/DOI-tamper signals also drag down citation health -- a
+        # retracted or metadata-mismatched reference is not "verified" no
+        # matter what claim-support tier it landed in.
+        if total:
+            penalty = 100.0 * (len(retracted) + 0.5 * len(doi_mismatches)) / total
+            health = round(max(0.0, health - penalty), 1)
 
         llm_used = getattr(self, "_llm_enabled", False)
         metadata = {
@@ -434,6 +549,8 @@ class CitationAgent(BaseAgent):
             "not_found_count": not_found,
             "unverifiable_count": unverifiable,
             "contradiction_count": len(contradicts),
+            "retracted_count": len(retracted),
+            "doi_mismatch_count": len(doi_mismatches),
             "pattern_flag_over_50pct_unverifiable": pattern_flag,
             "claim_checks_performed": claim_checks_done,
             "llm_claim_verification_enabled": bool(llm_used),

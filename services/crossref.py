@@ -12,6 +12,21 @@ def get_headers() -> Dict[str, str]:
         "User-Agent": f"PaperGuard/1.0 (mailto:{email})"
     }
 
+def get_retraction_notices(work_message: Dict[str, Any]) -> list:
+    """
+    Extract retraction/correction/erratum notices from a CrossRef work's
+    ``updated-by`` field (confirmed live: CrossRef marks a retracted record's
+    ``message.updated-by`` with entries like
+    ``{"DOI": "...", "type": "retraction", "label": "Retraction", ...}``).
+    Returns only entries whose type indicates a retraction (not every
+    correction/erratum, which are common and not integrity issues by themselves).
+    """
+    if not work_message:
+        return []
+    updates = work_message.get("updated-by") or []
+    return [u for u in updates if str(u.get("type", "")).lower() == "retraction"]
+
+
 def get_work_by_doi(doi: str) -> Optional[Dict[str, Any]]:
     """
     Fetch metadata for a specific DOI from CrossRef.

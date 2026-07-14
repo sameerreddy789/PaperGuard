@@ -38,23 +38,29 @@ from models.reference import Reference  # noqa: E402
 # --------------------------------------------------------------------------- #
 def get_llm():
     """
-    Lazily return the `services.gemini` module, or ``None`` if the Gemini SDK
-    is not installed. Note that even when this returns a module, individual
-    calls return ``None`` when ``GEMINI_API_KEY`` is not configured, so callers
-    must always handle a ``None`` response.
+    Lazily return the provider-agnostic ``services.llm`` module (which itself
+    selects Gemini or Qwen/DashScope based on ``PAPERGUARD_LLM_PROVIDER`` and
+    which API key is configured -- see services/llm.py), or ``None`` if
+    neither backend SDK is installed. Note that even when this returns a
+    module, individual calls return ``None`` when no API key is configured,
+    so callers must always handle a ``None`` response. All existing call sites
+    (``self._gemini.call_llm_json(...)`` etc.) work unchanged since both
+    backends and the selector expose the identical ``call_llm``/
+    ``call_llm_json`` signatures.
     """
     try:
-        from services import gemini  # noqa: WPS433 (intentional lazy import)
-        return gemini
+        from services import llm  # noqa: WPS433 (intentional lazy import)
+        return llm
     except Exception:  # pragma: no cover - environment dependent
         return None
 
 
 def llm_available() -> bool:
-    """True only when the Gemini SDK is importable AND an API key is present."""
+    """True when an LLM backend is importable AND a key for it is present
+    (either ``GEMINI_API_KEY`` or ``DASHSCOPE_API_KEY``)."""
     if get_llm() is None:
         return False
-    return bool(os.getenv("GEMINI_API_KEY"))
+    return bool(os.getenv("GEMINI_API_KEY") or os.getenv("DASHSCOPE_API_KEY"))
 
 
 def load_env() -> None:

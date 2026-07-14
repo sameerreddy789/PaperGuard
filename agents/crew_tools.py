@@ -89,13 +89,17 @@ def _run_citation() -> Dict[str, Any]:
         "citation_health_score": meta.get("citation_health_score"),
         "tier_counts": meta.get("tier_counts"),
         "not_found_count": meta.get("not_found_count"),
+        "retracted_count": meta.get("retracted_count"),
+        "doi_mismatch_count": meta.get("doi_mismatch_count"),
         "findings": payload.get("findings", [])[:8],
     }
 
 
 def _run_plagiarism() -> Dict[str, Any]:
     from agents.plagiarism_agent import PlagiarismAgent
-    result = PlagiarismAgent().run(_CONTEXT["text"] or "")
+    # Pass the already-extracted references so the cross-agent quote/citation
+    # dedupe check reuses them instead of re-parsing the References section.
+    result = PlagiarismAgent().run(_CONTEXT["text"] or "", references=_ensure_references())
     payload = result.model_dump()
     _store(result.agent_name, payload)
     meta = payload.get("metadata", {})
@@ -103,6 +107,7 @@ def _run_plagiarism() -> Dict[str, Any]:
         "status": payload.get("status"),
         "plagiarism_score": meta.get("plagiarism_score"),
         "flagged_paragraph_count": meta.get("flagged_paragraph_count"),
+        "downgraded_attributed_quote_count": meta.get("downgraded_attributed_quote_count"),
         "findings": payload.get("findings", [])[:8],
     }
 

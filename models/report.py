@@ -20,3 +20,20 @@ class Report(BaseModel):
     summary: str = Field(..., description="High-level summary of the verification results")
     agent_results: List[AgentResult] = Field(default_factory=list, description="Detailed results from all agents")
     extracted_references: List[Reference] = Field(default_factory=list, description="References found in the paper")
+    conflict_notes: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Deterministic cross-agent hard facts (e.g. fabricated-reference counts, "
+            "AI-score/structure conflicts). Always populated by the orchestrator "
+            "regardless of whether the LLM crew ran, so critical facts never depend "
+            "on the LLM choosing to mention them in prose."
+        ),
+    )
+    headline_metrics: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Turnitin-style headline numbers for dashboard display: ai_percent, "
+            "similarity_percent, citation_health_percent, quality_score, plus band "
+            "labels. Derived deterministically from agent metadata."
+        ),
+    )

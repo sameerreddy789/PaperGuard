@@ -149,8 +149,9 @@ def _run_crew() -> Optional[str]:
 
         t_citation = _mk_task(
             "Use your tool to verify the paper's citations. Report the citation-health "
-            "score, any fabricated (NOT_FOUND) references, and any citations whose "
-            "claims are unsupported.",
+            "score, any fabricated (NOT_FOUND) references, any citations whose claims "
+            "are unsupported, any RETRACTED references (a serious integrity concern), "
+            "and any DOI metadata mismatches (possible tampering or mis-transcription).",
             "A short paragraph summarising citation integrity with specific flagged references.",
             citation_agent,
         )
@@ -243,7 +244,12 @@ def _build_report(
             agent_results.append(AgentResult(**payload))
 
     conflict_notes = _cross_agent_conflicts(results)
+    headline = _headline_metrics(results)
 
+    # Hard facts (conflict_notes) are ALWAYS attached as a structured field,
+    # regardless of whether the LLM crew ran. Previously they only reached the
+    # user if the LLM chose to mention them inside its prose summary -- a
+    # fabricated-reference count is too important to depend on LLM phrasing.
     summary = crew_summary or _fallback_summary(results, conflict_notes)
 
     return Report(
@@ -252,7 +258,56 @@ def _build_report(
         summary=summary,
         agent_results=agent_results,
         extracted_references=references,
+        conflict_notes=conflict_notes,
+        headline_metrics=headline,
     )
+
+
+def _band(value: Optional[float], high: float, low: float, higher_is_worse: bool = True) -> str:
+    """Classify a 0-100 metric into good/warning/bad for dashboard coloring."""
+    if value is None:
+        return "unknown"
+    if higher_is_worse:
+        if value >= high:
+            return "bad"
+        if value >= low:
+            return "warning"
+        return "good"
+    # higher_is_worse=False (e.g. citation health, quality): higher is better.
+    if value <= low:
+        return "bad"
+    if value <= high:
+        return "warning"
+    return "good"
+
+
+def _headline_metrics(results: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deterministic Turnitin-style headline numbers, computed once here so the UI
+    (or any other consumer) never has to re-derive band thresholds itself.
+    """
+    ai = results.get("AIDetection") or {}
+    plag = (results.get("PlagiarismAgent") or {}).get("metadata", {}) or {}
+    citation = (results.get("CitationAgent") or {}).get("metadata", {}) or {}
+    quality = (results.get("QualityAgent") or {}).get("metadata", {}) or {}
+
+    ai_score = ai.get("overall_ai_score")
+    similarity = plag.get("plagiarism_score")
+    cite_health = citation.get("citation_health_score")
+    quality_score = quality.get("overall_quality_score")
+
+    return {
+        "ai_percent": ai_score,
+        "ai_band": _band(ai_score, high=_LIKELY_AI, low=35, higher_is_worse=True),
+        "similarity_percent": similarity,
+        "similarity_band": _band(similarity, high=50, low=20, higher_is_worse=True),
+        "citation_health_percent": cite_health,
+        "citation_health_band": _band(cite_health, high=80, low=50, higher_is_worse=False),
+        "quality_score": quality_score,
+        "not_found_citation_count": citation.get("not_found_count", 0),
+        "retracted_citation_count": citation.get("retracted_count", 0),
+        "patchwork_paragraph_count": (ai.get("stylometry") or {}).get("outlier_count", 0),
+    }
 
 
 def _cross_agent_conflicts(results: Dict[str, Any]) -> List[str]:
@@ -283,6 +338,17 @@ def _cross_agent_conflicts(results: Dict[str, Any]) -> List[str]:
         notes.append(
             f"{citation['not_found_count']} reference(s) appear fabricated (not found "
             "in CrossRef/Semantic Scholar) - a strong integrity concern."
+        )
+    if citation.get("retracted_count"):
+        notes.append(
+            f"{citation['retracted_count']} cited reference(s) have been RETRACTED "
+            "per CrossRef - the strongest citation integrity concern possible."
+        )
+    if citation.get("doi_mismatch_count"):
+        notes.append(
+            f"{citation['doi_mismatch_count']} reference(s) have metadata that does "
+            "not match their resolved CrossRef record (possible tampering or "
+            "mis-transcription)."
         )
     return notes
 

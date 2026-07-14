@@ -7,6 +7,11 @@ streamlit
 python-dotenv
 reportlab
 
+# Qwen / Alibaba DashScope backend for sub-agent LLM calls (OpenAI-compatible
+# endpoint; see services/llm.py + services/dashscope_llm.py). Optional: only
+# needed if DASHSCOPE_API_KEY is set to route sub-agent calls to Qwen.
+openai
+
 # Multi-agent orchestration (agents-as-tools). Gemini is used via LiteLLM.
 crewai
 crewai-tools

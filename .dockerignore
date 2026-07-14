@@ -1,0 +1,42 @@
+# Keep the build context (and image) small and avoid leaking secrets/artifacts.
+
+.git
+.gitignore
+.venv
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets -- never bake into an image.
+.env
+
+# Training artifacts / caches -- large, and not needed to SERVE the app
+# (the deployed detector loads from Hugging Face via PAPERGUARD_DETECTOR_MODEL).
+training/
+hf_cache/
+.cache/
+*.safetensors
+*.arrow
+*.log
+
+# Training-only requirements (kept separate from the serving image).
+requirements-train.txt
+
+# Tests / docs / benchmarking artifacts not needed at runtime.
+tests/
+benchmark_results.md
+benchmark_samples.json
+benchmark_detector.py
+fit_calibration.py
+ood_stress_test.py
+train_v2_2.py
+train_mega_dataset.py
+COMPLETION_STATUS.md
+TASKS.md
+README.md
+
+# IDE/OS noise.
+.vscode/
+.idea/
+.DS_Store

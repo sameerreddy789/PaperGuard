@@ -12,8 +12,6 @@
 #     If you DO deploy on a GPU instance (e.g. PAI-EAS with a GPU spec), build
 #     with `--build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121`
 #     to get the matching CUDA wheels instead.
-#   * requirements-train.txt is intentionally NOT installed (training-only,
-#     per its own header comment) -- keeps the serving image lean.
 #   * Listens on $PORT (default 8000) with server.address=0.0.0.0, matching
 #     the serverless-container convention Alibaba FC / most PaaS expect.
 #   * Runs as a non-root user.

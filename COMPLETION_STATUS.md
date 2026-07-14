@@ -42,10 +42,16 @@ verification** as a differentiator.
 
 ### Phase 1.5 — Detector model (✅)
 - v2.0 "mega" DistilBERT trained and **deployed** to HF
-  `vediumsameer/paperguard-ai-detector` (`eval_loss=0.0003`). Training pipeline:
-  `train_mega_dataset.py`. OOD validation: `ood_stress_test.py`.
+  `vediumsameer/paperguard-ai-detector` (`eval_loss=0.0003`). Training pipeline
+  was `train_mega_dataset.py`; OOD validation was `ood_stress_test.py`.
 - **Note:** the near-zero eval loss reflects overfitting to easy data → softmax
   saturation. Two retraining attempts (v2.1, v2.2) were made — see Phase 1.6.
+- **2026-07-14: this DistilBERT model was retired** (see Phase 1.7) in favor of
+  an external HF model, `desklib/ai-text-detector-v1.01`. `train_mega_dataset.py`,
+  `train_v2_2.py`, `ood_stress_test.py`, and `requirements-train.txt` were
+  deleted from the repo as dead code (no local model left to train/validate;
+  `ood_stress_test.py` also hardcoded a checkpoint path that no longer exists).
+  This section is kept as the historical record of how v2.0 was built.
 
 ### Phase 1.6 — Detector retraining attempts + honest benchmarking (✅ done; v2.0 retained)
 
@@ -57,8 +63,8 @@ The headline finding: **v2.0 is still the best detector; do not overwrite it.**
 | Frozen benchmark (240 samples) | `benchmark_samples.json` | 40 AI (Gemini/Claude S5/GPT-5.5/Grok, default+disguised) + 200 human across 5 registers (arXiv/news/Yelp/Gutenberg/student). Not in any training set. |
 | Benchmark harness | `benchmark_detector.py` | AUC, threshold sweep, dev/test split, per-register FPR, arXiv canary. |
 | Results log | `benchmark_results.md` | v2.0 vs v2.1 vs v2.2, full per-register/per-model tables. |
-| v2.1 trainer | (superseded by `train_v2_2.py`) | RAID adversarial + Ateeqq + pile, 2 epochs. |
-| v2.2 trainer (fixed) | `train_v2_2.py` | Adds a **balanced, two-class, multi-register held-out eval** + a **nan-AUC abort alarm** + push safety gate. |
+| v2.1 trainer | (superseded by v2.2 trainer, both deleted — see Phase 1.7) | RAID adversarial + Ateeqq + pile, 2 epochs. |
+| v2.2 trainer (fixed) | (deleted — see Phase 1.7) | Added a **balanced, two-class, multi-register held-out eval** + a **nan-AUC abort alarm** + push safety gate. |
 
 **Benchmark results (frozen set — directly comparable):**
 
@@ -71,9 +77,10 @@ The headline finding: **v2.0 is still the best detector; do not overwrite it.**
 **What was fixed vs what remains:**
 - ✅ **Training methodology is fixed.** v2.1 failed because its held-out eval was
   AI-only → `eval_auc=nan` every epoch → FPR was never measured → the model
-  over-flagged human text invisibly. `train_v2_2.py` fixes this: the held-out
-  eval is now two-class and register-diverse (v2.2 held-out: AUC 0.986, FPR 1.4%,
-  real numbers), and a callback aborts on `nan` AUC.
+  over-flagged human text invisibly. The v2.2 trainer (since deleted, see
+  Phase 1.7) fixed this: the held-out eval was two-class and register-diverse
+  (v2.2 held-out: AUC 0.986, FPR 1.4%, real numbers), with a callback that
+  aborted on `nan` AUC.
 - ❌ **The model still doesn't beat v2.0.** Even with an honest eval, v2.2 scores
   AUC 0.458 (below random) on the frozen benchmark. Root cause is now clearly a
   **data problem**: RAID adversarial text does not transfer to 2025-model

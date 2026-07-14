@@ -1,9 +1,0 @@
-# Training-only dependencies (for train_v2_1.py / fit_calibration.py).
-# The app itself does NOT need these — keep them out of the deployment image.
-# Install in the training venv:  pip install -r requirements-train.txt
-torch
-transformers
-accelerate
-datasets
-scikit-learn
-huggingface_hub

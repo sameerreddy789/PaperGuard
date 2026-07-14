@@ -20,21 +20,16 @@ hf_cache/
 *.arrow
 *.log
 
-# Training-only requirements (kept separate from the serving image).
-requirements-train.txt
-
 # Tests / docs / benchmarking artifacts not needed at runtime.
 tests/
 benchmark_results.md
 benchmark_samples.json
 benchmark_detector.py
 fit_calibration.py
-ood_stress_test.py
-train_v2_2.py
-train_mega_dataset.py
 COMPLETION_STATUS.md
 TASKS.md
 README.md
+PROJECT_REPORT.md
 
 # IDE/OS noise.
 .vscode/

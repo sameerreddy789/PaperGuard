@@ -124,9 +124,8 @@ paperguard/
 │
 ├── models/                    # Pydantic data models
 ├── tests/                     # Sample papers
-├── train_mega_dataset.py      # Detector training pipeline
-├── fit_calibration.py         # Re-fit the detector's margin calibration
-├── ood_stress_test.py         # Out-of-distribution validation
+├── fit_calibration.py         # Legacy margin-calibration tool (see file header)
+├── benchmark_detector.py      # Frozen-benchmark harness for detector model comparisons
 │
 ├── TASKS.md                   # Future work + strategy (start here for what's next)
 ├── COMPLETION_STATUS.md       # Completed work

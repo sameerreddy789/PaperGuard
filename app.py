@@ -165,7 +165,7 @@ def render_dashboard(report: Dict[str, Any]) -> None:
     hc1, hc2 = st.columns(2)
     _headline_card(
         hc1, "AI-Generated Content", h.get("ai_percent"), h.get("ai_band", "unknown"),
-        "Calibrated DistilBERT detector - indicator, not a verdict.",
+        "desklib deberta-v3-large detector - indicator, not a verdict.",
     )
     _headline_card(
         hc2, "Similarity / Plagiarism", h.get("similarity_percent"), h.get("similarity_band", "unknown"),
@@ -199,7 +199,7 @@ def render_heatmap(report: Dict[str, Any]) -> None:
 
     st.markdown(
         '<div class="pg-legend">'
-        '<span style="background:#FEE2E2;color:#991B1B;">Likely AI (&ge;65%)</span>'
+        '<span style="background:#FEE2E2;color:#991B1B;">Likely AI (&ge;90%)</span>'
         '<span style="background:#FEF3C7;color:#92400E;">Uncertain</span>'
         '<span style="background:#DCFCE7;color:#166534;">Likely Human (&le;35%)</span>'
         '</div>',
@@ -207,7 +207,7 @@ def render_heatmap(report: Dict[str, Any]) -> None:
     )
     st.caption(
         f"Detector: {'on' if comp.get('detector_available') else 'off'} · "
-        f"model: {comp.get('detector_model', 'n/a')} (calibrated logit margin)"
+        f"model: {comp.get('detector_model', 'n/a')} (sigmoid classifier output)"
     )
     if not comp.get("detector_available"):
         st.warning("Detector model unavailable; AI scores could not be computed.", icon=None)
@@ -538,8 +538,10 @@ def build_annotated_pdf(report: Dict[str, Any], original_pdf_bytes: bytes):
 # --------------------------------------------------------------------------- #
 # Sidebar
 # --------------------------------------------------------------------------- #
-_LOCAL_MODEL = r"training\mega_dataset_model_v2"
-_default_model = _LOCAL_MODEL if Path(_LOCAL_MODEL).exists() else "vediumsameer/paperguard-ai-detector"
+# Note: the old local v2.0 fallback path (training/mega_dataset_model_v2) was
+# removed in the model swap to desklib/ai-text-detector-v1.01 -- it used a
+# different (incompatible) model architecture/class than the current detector.
+_default_model = "desklib/ai-text-detector-v1.01"
 
 with st.sidebar:
     st.header("Settings")

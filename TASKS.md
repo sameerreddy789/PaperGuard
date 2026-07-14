@@ -17,9 +17,14 @@ been built and locally verified.
 
 ## Snapshot (where we are)
 
-- **Detector = v2.0 "mega"** — confirmed best (frozen benchmark AUC 0.911,
-  human FPR 0.5%); retraining is closed, see `COMPLETION_STATUS.md` Phase 1.6.
-- **AI detection = model-only** (calibrated margin + embedding patchwork). No LLM.
+- **Detector = `desklib/ai-text-detector-v1.01`** (deberta-v3-large) — swapped
+  in 2026-07-14 after beating both our in-house v2.0 (retired) and a second
+  external candidate on the same frozen benchmark (AUC 0.968 vs v2.0's 0.911;
+  disguised-AI recall 75% vs v2.0's 0%). In-house retraining (v2.1/v2.2) is
+  closed, see `COMPLETION_STATUS.md` Phase 1.6 for that history and Phase 1.7
+  for the swap details.
+- **AI detection = model-only** (direct sigmoid classifier output + embedding
+  patchwork). No LLM.
 - **Agent society is complete**: orchestrator surfaces deterministic hard facts
   + headline metrics as structured `Report` fields (not just LLM prose);
   plagiarism combines n-gram overlap + semantic embeddings + LLM judgment with
@@ -79,11 +84,20 @@ credentials that were not available in the environment this was built in.
 
 ## Tracked risks / blind spots
 
-- **Confirmed, unresolved:** fully style-masked / disguised 2025-model AI evades
-  the detector (v2.0 disguised recall 0%), and RAID retraining did **not** fix it
-  (v2.1/v2.2 failed the benchmark — training chapter is closed, no v2.3 planned).
+- **Reduced, not eliminated:** fully style-masked / disguised 2025-model AI now
+  evades the detector 25% of the time (down from 100% with the old v2.0 after
+  the swap to desklib/ai-text-detector-v1.01 — see Snapshot above). In-house
+  RAID retraining did **not** fix v2.0's version of this (v2.1/v2.2 failed the
+  benchmark — that training chapter is closed, no v2.3 planned; the fix instead
+  came from adopting an external model trained on more representative data).
   Mitigation: patchwork detection + the "Uncertain" band for human review, and
   framing AI-detection as one signal, not a verdict.
+- **New since the swap:** desklib v1.01 is a deberta-v3-large (~400M params,
+  1.74GB), ~6.7x the size of the retired DistilBERT (~66M params, 260MB) —
+  heavier CPU inference latency and cold-start time; not yet stress-tested at
+  the same real-paper scale as v2.0 was. Calibration (the `_LIKELY_AI=90`
+  threshold) was chosen from the frozen benchmark's FPR/recall sweep, not
+  independently re-validated on a live paper corpus yet.
 - Plagiarism can't match Turnitin's private student-paper DB — scoped to open
   web + open-access scholarly, and the UI/PDF export both say so honestly.
 - Free-tier compute limits: torch + crewai + chromadb is heavy (~830MB image);

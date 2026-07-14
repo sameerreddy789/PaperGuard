@@ -1,5 +1,13 @@
 """
-Re-fit the AI-detector's logit-margin calibration on a labelled dataset.
+[LEGACY -- written for the retired v2.0 DistilBERT detector.] Re-fit the
+AI-detector's logit-margin calibration on a labelled dataset.
+
+As of the 2026-07-14 model swap to `desklib/ai-text-detector-v1.01`
+(see agents/detector_agent.py's module docstring), the production detector
+uses a direct sigmoid(logit) output that was not found to be saturated on the
+frozen benchmark, so this margin-based calibration is NOT currently applied.
+Kept for reference / in case a future swapped-in model exhibits the same
+saturated-softmax problem v2.0 had.
 
 The Detector scores AI-likelihood from the logit MARGIN (human_logit - ai_logit)
 via:   ai_prob = sigmoid((MIDPOINT - margin) / SCALE)

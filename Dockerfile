@@ -1,5 +1,5 @@
-# PaperGuard -- Streamlit app + local DistilBERT detector, containerized for
-# Alibaba Cloud (Function Compute 3.0 / PAI-EAS / plain ECS+Docker).
+# PaperGuard -- Streamlit app + local deberta-v3-large AI detector, containerized
+# for Alibaba Cloud (Function Compute 3.0 / PAI-EAS / plain ECS+Docker).
 #
 # Deliberate choices:
 #   * python:3.11-slim base -- small, matches the project's tested runtime.

@@ -16,9 +16,13 @@ openai
 crewai
 crewai-tools
 
-# AI Detection Agent (local PyTorch inference of vediumsameer/paperguard-ai-detector).
+# AI Detection Agent (local PyTorch inference of desklib/ai-text-detector-v1.01,
+# a fine-tuned microsoft/deberta-v3-large -- see agents/detector_agent.py).
 # CPU-only deployments can install the CPU build of torch. The Detector agent
 # degrades gracefully (disables itself) if torch/transformers are unavailable.
+# sentencepiece is required for the DeBERTa-v2/v3 tokenizer this model uses
+# (the previous DistilBERT model didn't need it).
 torch
 transformers
 accelerate
+sentencepiece

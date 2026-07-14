@@ -128,9 +128,12 @@ browse to the instance's public IP.
 ## Notes / honest limitations
 
 - **Cold starts**: FC's scale-to-zero means the first request after idle will
-  be slow (loading torch + the DistilBERT model). If demo timing matters,
-  either keep a warm instance (PAI-EAS or ECS) or set FC's minimum instances
-  ≥ 1 for the demo window.
+  be slow (loading torch + the deberta-v3-large detector model, ~1.7GB --
+  noticeably heavier than the previous DistilBERT's 260MB, since the model was
+  swapped to `desklib/ai-text-detector-v1.01` for its much higher disguised-AI
+  recall; see `PROJECT_REPORT.md` Section 1). If demo timing matters, either
+  keep a warm instance (PAI-EAS or ECS) or set FC's minimum instances ≥ 1 for
+  the demo window.
 - **GPU is optional, not required**: the detector runs one short paragraph at
   a time; CPU inference is fine for interactive use. Only reach for a GPU
   instance if you're doing something batch-heavy that this app doesn't do.

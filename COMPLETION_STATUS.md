@@ -83,6 +83,63 @@ The headline finding: **v2.0 is still the best detector; do not overwrite it.**
   The path to v2.3 is training data that actually represents 2025-model disguised
   text, not another RAID retrain (see TASKS.md).
 
+### Phase 1.7 — Model swap to desklib/ai-text-detector-v1.01 (✅ done, 2026-07-14)
+
+With in-house retraining closed (Phase 1.6), external HF detector models were
+benchmarked head-to-head on the SAME frozen 240-sample set to check whether a
+better-trained model exists externally. Two candidates were tested and one
+commercial-SaaS category was referenced (not directly testable, no API key):
+
+| Model | AUC | Human FPR @50 | Disguised recall | Verdict |
+| :--- | :---: | :---: | :---: | :--- |
+| v2.0 (previous, in-house) | 0.911 | 0.5% | 0% | retired |
+| **desklib/ai-text-detector-v1.01** | **0.968** | 7.0% | **75%** | **adopted** |
+| mdrakibali/deberta-ai-detector-v3 | 0.767 | 14.5% | 35% | ruled out |
+| CopyLeaks / Winston AI (SaaS, reference only) | n/a (independent studies) | 19-35% (Copyleaks) | n/a | not integrated |
+
+- mdrakibali's HF config exposed only generic `LABEL_0`/`LABEL_1` (no
+  descriptive label names) and its own model card admitted the label direction
+  was an unconfirmed guess. Rather than trust that guess, the direction was
+  confirmed empirically (obvious human vs. obvious AI-boilerplate text; index 1
+  = AI, P≈1.000 vs P≈0.001) before running the full benchmark — it still lost
+  decisively on every axis.
+- **Adopted `desklib/ai-text-detector-v1.01`** (deberta-v3-large): the only
+  candidate that both improves meaningfully on v2.0's exact blind spot
+  (disguised-AI recall) and keeps FPR workable at a higher operating threshold.
+
+**Code changes** (`agents/detector_agent.py`, `agents/ai_detection.py`,
+`agents/orchestrator.py`, `app.py`, `requirements.txt`, `README.md`,
+`.env.example`, `Dockerfile`, `DEPLOYMENT.md`):
+- New `_DesklibAIDetectionModel` class (mean-pooling + single-logit classifier
+  head, matching the model card's own reference implementation exactly, incl. a
+  `all_tied_weights_keys` compatibility shim for the current `transformers`
+  version) replaces the old `AutoModelForSequenceClassification` load path —
+  this model is not a standard classification head.
+- `score_text` now reads `sigmoid(logit)` directly as `ai_probability`; the old
+  logit-margin recalibration (`_CALIB_MIDPOINT`/`_CALIB_SCALE`, needed because
+  v2.0's softmax was saturated) is removed — this model's sigmoid output was
+  not found to be saturated on the benchmark.
+- `_LIKELY_AI` raised from 65 to **90** (env-overridable via
+  `PAPERGUARD_DETECTOR_AI_THRESHOLD`) to match the benchmark's measured FPR/
+  recall operating point for this model (~0.5% FPR / ~85-87.5% recall at ~90-95,
+  vs. 7.0% FPR at the model's naive 50% default).
+- `embed_text` (used by stylometric patchwork detection) now pools from the
+  wrapper's underlying DeBERTa encoder (`bundle.model.model`) instead of
+  `output_hidden_states`, since the custom architecture's `forward` doesn't
+  expose that kwarg.
+- Added `sentencepiece` to `requirements.txt` (needed for the DeBERTa-v2/v3
+  tokenizer; the old DistilBERT tokenizer didn't require it).
+
+**Verified, not assumed:** the custom model wrapper's output was checked
+byte-for-byte against the model card's own reference `predict_single_text`
+function on its own example texts (both matched exactly: AI text P=0.9974,
+human text P=0.4245) before trusting any downstream score. `embed_text` and the
+full `run_ai_detection`/orchestrator pipeline were run end-to-end on the sample
+paper after the swap (engine mode, no LLM key) and produced a coherent report.
+Old v2.0 fallback code paths referencing the retired `training/mega_dataset_model_v2`
+local directory were removed from `app.py`'s sidebar default (that directory
+used an incompatible model architecture/class for the new model).
+
 ### Phase 2 — Base agents (✅)
 | Agent | File |
 | :--- | :--- |
@@ -92,13 +149,13 @@ The headline finding: **v2.0 is still the best detector; do not overwrite it.**
 
 Shared foundation `agents/base.py` (lazy imports, `.pdf/.md/.txt` loading, CLI).
 
-### Phase 2.5 — AI detection (model-only) (✅)
+### Phase 2.5 — AI detection (model-only) (✅; detector swapped in Phase 1.7)
 | Component | File | Notes |
 | :--- | :--- | :--- |
-| Detector (calibrated logit margin) | `agents/detector_agent.py` | Softmax is saturated; we score off the margin. Clean AI ~76%, academic ~71%, human/ESL ~10% (was 0% for all). `embed_text` for stylometry. |
+| Detector (desklib deberta-v3-large, sigmoid output) | `agents/detector_agent.py` | Direct `sigmoid(logit)` AI probability; "Likely AI" threshold raised to ~90 (benchmark-derived operating point) rather than recalibrating, since this model's output was not found to be saturated. `embed_text` for stylometry. |
 | AI-detection engine (heatmap + patchwork) | `agents/ai_detection.py` | Model-only per-paragraph heatmap + document verdict. |
 | Stylometric patchwork detection | `agents/ai_detection.py` | Robust median/MAD embedding-outlier flag for mixed authorship ("Frankenstein"). Validated. |
-| Calibration re-fit tool | `fit_calibration.py` | Logistic fit of MIDPOINT/SCALE from labelled margins (`--self-test` validated). |
+| Calibration re-fit tool (legacy, v2.0-era) | `fit_calibration.py` | Logistic fit of MIDPOINT/SCALE from labelled margins — was used for the retired v2.0 DistilBERT's saturated-softmax problem; not needed for the current detector, kept for reference/future models that exhibit the same saturation issue. |
 
 > **Decision (2026-07-08): removed the LLM "safety net"** from AI detection.
 > Deleted `linguistic_agent.py`, `conflict_resolver.py`, `ai_detection_agent.py`,

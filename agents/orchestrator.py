@@ -33,8 +33,10 @@ from agents.crew_tools import (
 from models.reference import Reference
 from models.report import AgentResult, Report
 
-# AI-score band for status decisions.
-_LIKELY_AI = 65
+# AI-score band for status decisions. Kept in sync with
+# agents.detector_agent._LIKELY_AI (desklib v1.01's benchmark-derived ~90
+# operating point, not the model's naive 50% default).
+_LIKELY_AI = float(os.getenv("PAPERGUARD_DETECTOR_AI_THRESHOLD", "90"))
 
 
 # --------------------------------------------------------------------------- #

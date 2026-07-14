@@ -1,34 +1,42 @@
 """
 AI-Detection engine (model-only).
 
-AI detection is performed entirely by PaperGuard's fine-tuned DistilBERT
-detector (``vediumsameer/paperguard-ai-detector``), scored via the calibrated
-logit margin, plus embedding-based stylometric "patchwork" detection. No LLM is
-used for AI detection: Gemini is reserved for agent orchestration and the other
-tasks (citation claim checks, quality prose review, plagiarism similarity,
-reference parsing).
+AI detection is performed entirely by ``desklib/ai-text-detector-v1.01`` (a
+fine-tuned deberta-v3-large, leads the RAID benchmark; swapped in from the
+previous in-house DistilBERT after a head-to-head frozen-benchmark comparison
+-- see ``agents.detector_agent``'s module docstring and ``PROJECT_REPORT.md``
+Section 1 for the numbers), scored via its sigmoid classifier output, plus
+embedding-based stylometric "patchwork" detection. No LLM is used for AI
+detection: Gemini is reserved for agent orchestration and the other tasks
+(citation claim checks, quality prose review, plagiarism similarity, reference
+parsing).
 
 Per paragraph it produces a heatmap entry; per document it produces an overall
 AI score, the list of flagged paragraphs, and a stylometry block that flags
 paragraphs whose style deviates from the rest of the paper (possible mixed
 authorship / pasted AI).
 
-Known blind spot: slang/style-masked AI can still read as human to the model
-(the embedding patchwork check partially mitigates this when such text is pasted
-into otherwise-human writing).
+Known blind spot (reduced, not eliminated, by this model swap): slang/style-
+masked AI can still read as human 25% of the time (down from 100% with the
+previous model, per the frozen benchmark). The embedding patchwork check
+partially mitigates this when such text is pasted into otherwise-human writing.
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 from agents.base import iter_paragraphs, split_body_and_references
 from agents.detector_agent import DetectorAgent
 
 _MIN_PARAGRAPH_CHARS = 40
-# Classification bands (AI probability 0-100).
-_LIKELY_AI = 65
-_LIKELY_HUMAN = 35
+# Classification bands (AI probability 0-100). Kept in sync with
+# agents.detector_agent's thresholds (desklib v1.01's benchmark-derived
+# ~90-95 operating point, not the model's naive 50% default -- see that
+# module's docstring for the FPR/recall numbers behind this choice).
+_LIKELY_AI = float(os.getenv("PAPERGUARD_DETECTOR_AI_THRESHOLD", "90"))
+_LIKELY_HUMAN = float(os.getenv("PAPERGUARD_DETECTOR_HUMAN_THRESHOLD", "35"))
 # Stylometric patchwork detection tuning.
 _STYLO_MIN_PARAGRAPHS = 4       # need enough paragraphs for a stable baseline
 # Robust (median/MAD) modified z-score threshold. Mean/std self-inflates on small
@@ -181,7 +189,7 @@ def run_ai_detection(
         "flagged_paragraphs": [
             h["paragraph_index"] for h in heatmap if (h["final_ai_score"] or 0) >= _LIKELY_AI
         ],
-        "method": "calibrated_distilbert_logit_margin",
+        "method": "desklib_deberta_v3_large_sigmoid",
         "components": {
             "detector_available": detector_ok,
             "detector_model": detector.model_name,

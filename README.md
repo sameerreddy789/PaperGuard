@@ -28,24 +28,40 @@ citation claim verification.
 
 ## How AI detection works (model-only)
 
-AI detection is done entirely by our own fine-tuned model
-([`vediumsameer/paperguard-ai-detector`](https://huggingface.co/vediumsameer/paperguard-ai-detector),
-DistilBERT v2.0). **No LLM is used for detection** — LLMs are reserved for agent
-orchestration and the other tasks.
+AI detection is done by
+[`desklib/ai-text-detector-v1.01`](https://huggingface.co/desklib/ai-text-detector-v1.01)
+(a fine-tuned `microsoft/deberta-v3-large` that leads the RAID benchmark).
+**No LLM is used for detection** — LLMs are reserved for agent orchestration
+and the other tasks.
 
-1. **Calibrated logit margin.** The model's raw softmax is *saturated* (reports
-   ~0% AI even on real AI text). The signal lives in the logit margin (human −
-   ai), which separates clean/academic AI (~6–8) from human text (~16–18). We
-   score off a logistic calibration of that margin, so the detector flags
-   clean/academic AI (~70–90%) and keeps human text low (~10%).
-2. **Stylometric patchwork detection.** Paragraph embeddings from the same model
-   are compared to the document's overall style; strong outliers (robust
+We previously trained and deployed our own DistilBERT (v2.0). It was replaced
+after a head-to-head benchmark against desklib v1.01 and a second external
+candidate (mdrakibali/deberta-ai-detector-v3) on the same frozen 240-sample
+benchmark (`benchmark_samples.json`; see `benchmark_results.md` and
+`PROJECT_REPORT.md` Section 1):
+
+| Metric | v2.0 (previous, in-house) | desklib v1.01 (current) |
+|---|---:|---:|
+| AUC | 0.911 | **0.968** |
+| Disguised-AI recall | 0% | **75%** |
+| Human FPR @ deployment threshold | 0.5% | ~0.5% (at cutoff ~90) |
+
+1. **Direct sigmoid classifier output.** Unlike v2.0's DistilBERT (whose raw
+   softmax was saturated and needed a logit-margin recalibration), desklib's
+   single-logit sigmoid output was not found to be saturated on our benchmark.
+   Instead of recalibrating, the "Likely AI" decision threshold is raised from
+   the model's naive 50% default to ~90 — the FPR/recall sweet spot measured on
+   the frozen benchmark (~0.5% human FPR at ~85–87.5% AI recall, vs. 7.0% FPR
+   at 50%).
+2. **Stylometric patchwork detection.** Paragraph embeddings from the same
+   model are compared to the document's overall style; strong outliers (robust
    median/MAD) are flagged as possible mixed authorship — AI pasted into human
    writing.
 
-Output: a per-paragraph AI heatmap + patchwork flags. Known blind spot:
-fully slang/style-masked AI can still read as human (mitigated, not eliminated,
-by patchwork detection and planned adversarial retraining — see `TASKS.md`).
+Output: a per-paragraph AI heatmap + patchwork flags. Known blind spot
+(reduced, not eliminated): style-masked/disguised AI still evades the detector
+25% of the time (down from 100% with v2.0) — mitigated, not eliminated, by
+patchwork detection.
 
 ---
 
@@ -72,7 +88,7 @@ synthesises, so fact-lookups are trustworthy.
 | Language | Python 3.10+ |
 | Agent framework | CrewAI (agents-as-tools) |
 | Reasoning LLM | Gemini (default); **Qwen via Alibaba DashScope** for deployment (LiteLLM) |
-| AI-detection model | `vediumsameer/paperguard-ai-detector` (DistilBERT v2.0, local via `transformers`) |
+| AI-detection model | `desklib/ai-text-detector-v1.01` (deberta-v3-large, local via `transformers`) |
 | PDF parsing | pymupdf4llm (layout-aware, two-column safe) |
 | Reference APIs | CrossRef + Semantic Scholar |
 | Web search | Serper |
@@ -99,7 +115,7 @@ paperguard/
 ├── agents/
 │   ├── base.py                # shared BaseAgent + CLI harness
 │   ├── citation_agent.py      # citation existence + claim verification
-│   ├── detector_agent.py      # fine-tuned AI detector (calibrated margin + embeddings)
+│   ├── detector_agent.py      # AI detector (desklib deberta-v3-large + embeddings)
 │   ├── ai_detection.py        # model-only AI-detection engine (heatmap + patchwork)
 │   ├── plagiarism_agent.py    # open-source overlap detection
 │   ├── quality_agent.py       # writing-quality assessment
@@ -133,7 +149,7 @@ python main.py path/to/paper.pdf  # CLI
 streamlit run app.py              # UI
 ```
 
-Runs without any LLM key in a degraded mode (calibrated detector + CrossRef
+Runs without any LLM key in a degraded mode (AI detector + CrossRef
 citations still work). Individual agents are CLI-runnable, e.g.
 `python -m agents.citation_agent tests/sample_papers/sample_paper.md`.
 

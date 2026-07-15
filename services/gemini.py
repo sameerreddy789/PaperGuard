@@ -4,7 +4,8 @@ Gemini LLM wrapper (google-genai SDK).
 Public interface is unchanged: ``call_llm`` and ``call_llm_json``. Uses the
 current ``google-genai`` client (the older ``google-generativeai`` package is
 end-of-life). The model name is read from ``PAPERGUARD_GEMINI_MODEL`` (default
-``gemini-2.5-flash``) so it stays consistent across the codebase.
+``gemini-3.1-flash-lite``, Google's GA cost/latency-optimized tier as of the
+Gemini 3.1 generation) so it stays consistent across the codebase.
 
 The client is created lazily and re-created if the API key changes at runtime
 (the Streamlit UI can set the key mid-session).
@@ -38,7 +39,7 @@ def _get_client():
 
 
 def _model_name() -> str:
-    return os.getenv("PAPERGUARD_GEMINI_MODEL", "gemini-2.5-flash")
+    return os.getenv("PAPERGUARD_GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 
 def call_llm(
@@ -110,7 +111,7 @@ def call_llm_json(prompt: str, system_instruction: Optional[str] = None) -> Opti
 if __name__ == "__main__":
     try:
         from dotenv import load_dotenv
-        load_dotenv()
+        load_dotenv(override=True)
     except ImportError:
         pass
 

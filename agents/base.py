@@ -64,11 +64,19 @@ def llm_available() -> bool:
 
 
 def load_env() -> None:
-    """Best-effort load of a local .env file (no-op if python-dotenv missing)."""
+    """Best-effort load of a local .env file (no-op if python-dotenv missing).
+
+    ``override=True`` is intentional: a stale system/User-level env var (e.g.
+    an old, invalid GEMINI_API_KEY left over from a previous setup) would
+    otherwise silently win over the current .env file with no visible error --
+    which is exactly what happened during testing (see PROJECT_REPORT.md /
+    session notes: a stale Windows User+Machine env var shadowed a working
+    .env key). The .env file in this project is the intended source of truth.
+    """
     try:
         from dotenv import load_dotenv
 
-        load_dotenv()
+        load_dotenv(override=True)
     except Exception:
         pass
 

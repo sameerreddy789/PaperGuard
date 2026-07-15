@@ -102,7 +102,7 @@ def _run_crew() -> Optional[str]:
         return None
 
     try:
-        model_name = os.getenv("PAPERGUARD_CREW_MODEL", "gemini/gemini-2.5-flash")
+        model_name = os.getenv("PAPERGUARD_CREW_MODEL", "gemini/gemini-3.1-flash-lite")
         # Deterministic synthesis by default (same env var as the verdict calls in
         # services.gemini) so a paper's report is reproducible run-to-run.
         try:

@@ -219,6 +219,9 @@ def _build_report(
     # AI detection (model-based) -> AgentResult
     ai = results.get("AIDetection")
     if ai is not None:
+        quality_meta = (results.get("QualityAgent") or {}).get("metadata", {}) or {}
+        _annotate_heatmap_with_tone(ai, quality_meta)
+
         overall = ai.get("overall_ai_score")
         status = "warning" if (overall is not None and overall >= _LIKELY_AI) else "passed"
         findings = [
@@ -234,6 +237,23 @@ def _build_report(
             findings.append(
                 f"Stylometric patchwork: paragraph(s) {idxs} deviate in style "
                 f"(possible mixed authorship / pasted AI)."
+            )
+        near_outliers = stylo.get("near_outliers") or []
+        if near_outliers and not stylo.get("outlier_count"):
+            idxs = ", ".join(str(o.get("paragraph_index")) for o in near_outliers)
+            findings.append(
+                f"Possible (lower-confidence) style shift: paragraph(s) {idxs} deviate "
+                f"somewhat from the document's overall style, though not enough to meet "
+                f"the primary patchwork threshold."
+            )
+        conflict_count = sum(
+            1 for h in (ai.get("heatmap") or []) if h.get("ai_score_conflicts_with_tone")
+        )
+        if conflict_count:
+            findings.append(
+                f"{conflict_count} paragraph(s) scored 'Likely AI' but were independently "
+                f"rated casual/informal in tone by the writing-quality reviewer -- a known "
+                f"detector blind spot (see conflict notes)."
             )
         agent_results.append(AgentResult(
             agent_name="AIDetection", status=status, findings=findings, metadata=ai,
@@ -263,6 +283,37 @@ def _build_report(
         conflict_notes=conflict_notes,
         headline_metrics=headline,
     )
+
+
+def _annotate_heatmap_with_tone(ai: Dict[str, Any], quality_meta: Dict[str, Any]) -> None:
+    """
+    Cross-reference each AI-detection heatmap paragraph against the Quality
+    Agent's section-level tone verdict (mutates ``ai["heatmap"]`` in place).
+
+    Rationale (found via a synthetic mixed-authorship test paper, see
+    PROJECT_REPORT.md): the detector can read casual, first-person, informal
+    prose as "Likely AI" when it is wrapped in academic scaffolding (citations,
+    structured claims) -- a known, reduced-but-not-eliminated blind spot per the
+    frozen benchmark (75%, not 100%, disguised-AI recall). Rather than silently
+    trust the raw AI score in that situation, tag the conflict so the UI/summary
+    can surface it instead of stating a bare "Likely AI" verdict.
+
+    This does NOT change any score or classification -- it only adds a flag
+    (``ai_score_conflicts_with_tone``) for downstream reporting.
+    """
+    section_tone = {
+        rep.get("section"): rep.get("tone")
+        for rep in (quality_meta.get("section_reports") or [])
+        if rep.get("section")
+    }
+    if not section_tone:
+        return
+    for h in ai.get("heatmap") or []:
+        tone = section_tone.get(h.get("section"))
+        is_casual = tone in {"casual", "mixed"}
+        is_likely_ai = h.get("classification") == "Likely AI"
+        h["section_tone"] = tone
+        h["ai_score_conflicts_with_tone"] = bool(is_casual and is_likely_ai)
 
 
 def _band(value: Optional[float], high: float, low: float, higher_is_worse: bool = True) -> str:
@@ -326,6 +377,33 @@ def _cross_agent_conflicts(results: Dict[str, Any]) -> List[str]:
         notes.append(
             "AI detection is high but the paper is structurally complete and domain-"
             "appropriate; treat the AI signal as an indicator, not a verdict."
+        )
+
+    # Widened rule: very-high AI score + multiple sections independently rated
+    # casual/mixed tone + no stylometric patchwork outliers is the specific
+    # pattern of the detector's known disguised-AI blind spot (a human author
+    # writing in an informal voice, wrapped in academic scaffolding) rather
+    # than genuine uniform AI generation. Surface this explicitly rather than
+    # letting a bare "Likely AI" stand unqualified.
+    casual_sections = [
+        rep.get("section") for rep in (quality.get("section_reports") or [])
+        if rep.get("tone") in {"casual", "mixed"}
+    ]
+    stylo = ai.get("stylometry") or {}
+    if (
+        ai_score is not None and ai_score >= _LIKELY_AI
+        and len(casual_sections) >= 2
+        and not stylo.get("outlier_count")
+    ):
+        notes.append(
+            "LOW-CONFIDENCE AI VERDICT: the overall AI score is very high, but "
+            f"{len(casual_sections)} section(s) ({', '.join(casual_sections)}) were "
+            "independently rated casual/informal in tone by the writing-quality "
+            "reviewer, and no stylometric patchwork was detected between sections. "
+            "This pattern matches a known detector blind spot (informal human prose "
+            "wrapped in academic citation/structure reads as AI-like) rather than "
+            "confirmed uniform AI generation -- treat the AI score with reduced "
+            "confidence here and weigh the tone/structure signals alongside it."
         )
 
     plag_flags = plag.get("flagged_paragraph_count")

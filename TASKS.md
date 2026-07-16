@@ -90,8 +90,19 @@ credentials that were not available in the environment this was built in.
   RAID retraining did **not** fix v2.0's version of this (v2.1/v2.2 failed the
   benchmark — that training chapter is closed, no v2.3 planned; the fix instead
   came from adopting an external model trained on more representative data).
-  Mitigation: patchwork detection + the "Uncertain" band for human review, and
-  framing AI-detection as one signal, not a verdict.
+  **Reproduced concretely on 2026-07-16** on a synthetic mixed-authorship test
+  paper (`tests/sample_papers/green_spaces_test.md`): the detector scored the
+  whole paper 94.82% "Likely AI", including 4 deliberately human-voiced
+  sections. Root cause is the model's own judgment on informal prose wrapped in
+  academic scaffolding, not our integration — no code fix changes that. What
+  *was* fixed (signal-combination layer, see `PROJECT_REPORT.md` Section 10):
+  cross-referencing each AI-flagged paragraph against `QualityAgent`'s
+  independent tone verdict and surfacing an explicit "LOW-CONFIDENCE AI
+  VERDICT" conflict note when they disagree, plus a softer `near_outliers`
+  patchwork tier for style shifts too moderate to cross the strict threshold.
+  Mitigation: patchwork detection (now two-tiered) + the "Uncertain" band for
+  human review + the new tone-conflict note, framing AI-detection as one
+  signal, not a verdict.
 - **New since the swap:** desklib v1.01 is a deberta-v3-large (~400M params,
   1.74GB), ~6.7x the size of the retired DistilBERT (~66M params, 260MB) —
   heavier CPU inference latency and cold-start time; not yet stress-tested at
@@ -100,6 +111,17 @@ credentials that were not available in the environment this was built in.
   independently re-validated on a live paper corpus yet.
 - Plagiarism can't match Turnitin's private student-paper DB — scoped to open
   web + open-access scholarly, and the UI/PDF export both say so honestly.
+- **Fixed 2026-07-16:** CrossRef's `search_works_by_title()` matches on the
+  *title* field, so a body-paragraph key phrase (never a paper's own title)
+  could return a completely unrelated top hit with no relevance check —
+  confirmed missing an uncredited verbatim WHO-constitution quote on the
+  synthetic test paper above. Added a keyword-overlap relevance guard, a
+  Semantic Scholar search fallback, and a small deterministic known-text
+  fingerprint list (WHO health definition, UDHR Article 1) for the handful of
+  extremely famous passages title-search will never retrieve. See
+  `PROJECT_REPORT.md` Section 10 for the before/after numbers. This remains a
+  narrow supplement — general plagiarism retrieval coverage is still bounded
+  by the "Nice-to-haves" item above.
 - Free-tier compute limits: torch + crewai + chromadb is heavy (~830MB image);
   size the Alibaba instance accordingly, or serve the detector via HF Inference
   if a tighter memory budget is needed.

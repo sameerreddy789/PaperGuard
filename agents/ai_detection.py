@@ -43,6 +43,14 @@ _STYLO_MIN_PARAGRAPHS = 4       # need enough paragraphs for a stable baseline
 # samples (one outlier caps its own z near (n-1)/sqrt(n)); MAD avoids that.
 _STYLO_MODZ_FLAG = 3.5
 _STYLO_MIN_DISTANCE = 0.05      # ignore trivial deviations in ultra-uniform docs
+# Lower-confidence "near outlier" tier: on short documents (few paragraphs),
+# the MAD-based threshold above is tuned conservative and rarely fires even
+# when there is a real, moderate style shift (confirmed on a synthetic mixed-
+# authorship test paper: mean_style_distance ~0.10, 0 outliers at 3.5, but a
+# genuine human/AI-voice split existed). This tier is reported separately
+# (never merged into ``outliers``) so callers can surface a softer signal
+# without changing the primary threshold's precision.
+_STYLO_MODZ_NEAR = 2.0
 
 
 def _classify(score: Optional[float]) -> str:
@@ -119,16 +127,20 @@ def _detect_patchwork(paragraphs: List[tuple], detector: DetectorAgent) -> Dict[
     scale = mad if mad > 1e-6 else (float(distances.std()) or 1e-9)
 
     outliers = []
+    near_outliers = []
     for (idx, section, para), dist in zip(meta, distances):
         mod_z = 0.6745 * (float(dist) - median_d) / scale
+        entry = {
+            "paragraph_index": idx,
+            "section": section,
+            "style_distance": round(float(dist), 4),
+            "modified_zscore": round(mod_z, 2),
+            "text_preview": para[:200],
+        }
         if mod_z >= _STYLO_MODZ_FLAG and float(dist) >= _STYLO_MIN_DISTANCE:
-            outliers.append({
-                "paragraph_index": idx,
-                "section": section,
-                "style_distance": round(float(dist), 4),
-                "modified_zscore": round(mod_z, 2),
-                "text_preview": para[:200],
-            })
+            outliers.append(entry)
+        elif mod_z >= _STYLO_MODZ_NEAR and float(dist) >= _STYLO_MIN_DISTANCE:
+            near_outliers.append(entry)
 
     return {
         "available": True,
@@ -137,10 +149,14 @@ def _detect_patchwork(paragraphs: List[tuple], detector: DetectorAgent) -> Dict[
         "style_cohesion": round(max(0.0, 1.0 - mean_d), 4),  # 1 = very uniform style
         "outlier_count": len(outliers),
         "outliers": outliers,
+        "near_outlier_count": len(near_outliers),
+        "near_outliers": near_outliers,
         "note": (
             "Paragraphs whose stylometric fingerprint deviates strongly "
             f"(robust modified z >= {_STYLO_MODZ_FLAG}) from the document may "
-            "indicate mixed authorship (human + pasted AI). Indicative, not definitive."
+            "indicate mixed authorship (human + pasted AI). Indicative, not definitive. "
+            f"'near_outliers' (modified z >= {_STYLO_MODZ_NEAR}) is a softer, lower-"
+            "confidence tier for short documents where the primary threshold rarely fires."
         ),
     }
 

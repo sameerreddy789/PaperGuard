@@ -150,8 +150,8 @@ def build_crewai_tools():
 
     @tool("AI Detection")
     def ai_detection_tool() -> str:
-        """Run model-based AI detection (the fine-tuned PaperGuard DistilBERT
-        detector, calibrated) plus embedding-based stylometric patchwork
+        """Run model-based AI detection (desklib/ai-text-detector-v1.01, a
+        fine-tuned deberta-v3-large) plus embedding-based stylometric patchwork
         detection over the current paper. Returns a JSON summary with the overall
         AI score, classification, flagged paragraphs, and any style-outlier
         (possible mixed-authorship) paragraphs."""
@@ -160,15 +160,16 @@ def build_crewai_tools():
     @tool("Citation Verifier")
     def citation_tool() -> str:
         """Verify every reference in the current paper: existence (CrossRef /
-        Semantic Scholar) and whether the cited work supports the claim. Returns
-        a JSON summary with a citation-health score and per-tier counts."""
+        OpenAlex, both keyless) and whether the cited work supports the claim.
+        Returns a JSON summary with a citation-health score and per-tier counts."""
         return json.dumps(_run_citation(), ensure_ascii=False)
 
     @tool("Plagiarism Scanner")
     def plagiarism_tool() -> str:
-        """Scan the current paper for overlap with open web and open-access
-        scholarly sources. Returns a JSON summary with a similarity score and
-        the number of flagged paragraphs."""
+        """Scan the current paper for overlap with open-access scholarly
+        sources (CrossRef/OpenAlex) and a small known-text fingerprint list.
+        Returns a JSON summary with a similarity score and the number of
+        flagged paragraphs."""
         return json.dumps(_run_plagiarism(), ensure_ascii=False)
 
     @tool("Writing Quality Reviewer")

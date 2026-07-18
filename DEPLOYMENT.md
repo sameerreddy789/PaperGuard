@@ -120,9 +120,9 @@ browse to the instance's public IP.
 - [ ] Toggle the CrewAI crew on/off (sidebar) and confirm both paths work —
       the engine-path fallback should still produce a full report even if
       the LLM key/provider is misconfigured.
-- [ ] Check citation checks resolve against the live CrossRef/Semantic
-      Scholar APIs (outbound internet access must be allowed from the
-      compute environment).
+- [ ] Check citation checks resolve against the live CrossRef/OpenAlex
+      APIs (outbound internet access must be allowed from the compute
+      environment).
 
 ## Notes / honest limitations
 

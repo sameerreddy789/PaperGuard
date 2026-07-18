@@ -112,7 +112,7 @@ class ReferenceParser:
         Extracts year, DOI, and a best-effort title + authors from the common
         citation styles (APA "Authors (YEAR). Title. Venue", IEEE quoted titles,
         and numeric "Authors. Title. Venue"). A real title/author matters: it
-        lets the Citation Agent do CrossRef/Semantic-Scholar lookups even without
+        lets the Citation Agent do CrossRef/OpenAlex lookups even without
         an LLM key.
         """
         references = []

@@ -417,7 +417,7 @@ def _cross_agent_conflicts(results: Dict[str, Any]) -> List[str]:
     if citation.get("not_found_count"):
         notes.append(
             f"{citation['not_found_count']} reference(s) appear fabricated (not found "
-            "in CrossRef/Semantic Scholar) - a strong integrity concern."
+            "in CrossRef/OpenAlex) - a strong integrity concern."
         )
     if citation.get("retracted_count"):
         notes.append(

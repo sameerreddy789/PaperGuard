@@ -4,9 +4,15 @@ Citation Verification Agent  (PaperGuard's killer feature).
 For every reference in a paper this agent answers two questions:
 
 1. Does the cited work actually EXIST?         -> CrossRef (unlimited, no key)
-                                                  + Semantic Scholar fallback
-2. Does the cited work SUPPORT the claim it     -> Semantic Scholar abstract
+                                                  + OpenAlex fallback
+2. Does the cited work SUPPORT the claim it     -> OpenAlex abstract
    is used for in the paper?                       + Gemini claim verification
+
+Note (2026-07-16): the secondary source was switched from Semantic Scholar to
+OpenAlex (services/openalex.py) after Semantic Scholar's public API returned
+persistent 429 rate-limit errors in testing and its docs point new users to an
+approval-gated key request. OpenAlex needs no signup or key at all for these
+basic lookups. See PROJECT_REPORT.md for the full comparison.
 
 Each reference is placed into one of four tiers:
 
@@ -134,10 +140,10 @@ class CitationAgent(BaseAgent):
     def __init__(self, max_claim_checks: int = _MAX_CLAIM_CHECKS):
         self.max_claim_checks = max_claim_checks
         # Lazy service handles (import here so missing gemini never breaks import)
-        from services import crossref, semantic_scholar
+        from services import crossref, openalex
 
         self._crossref = crossref
-        self._s2 = semantic_scholar
+        self._openalex = openalex
         self._gemini = get_llm()
 
     # ------------------------------------------------------------------ #
@@ -262,14 +268,14 @@ class CitationAgent(BaseAgent):
             return {"exists": True, "source": "crossref_title", "resolved_doi": resolved,
                     "crossref_message": resolved_msg}
 
-        # 3. Semantic Scholar title search as a secondary source.
+        # 3. OpenAlex title search as a secondary source.
         try:
-            s2 = _clean_service_result(self._s2.search_paper_by_title(ref.title))
+            oa = _clean_service_result(self._openalex.search_paper_by_title(ref.title))
         except Exception:
-            s2 = None
-        if s2 and _title_similarity(ref.title, s2.get("title", "")) >= _TITLE_MATCH_THRESHOLD:
-            resolved_doi = (s2.get("externalIds") or {}).get("DOI")
-            return {"exists": True, "source": "semantic_scholar_title",
+            oa = None
+        if oa and _title_similarity(ref.title, oa.get("title", "")) >= _TITLE_MATCH_THRESHOLD:
+            resolved_doi = (oa.get("externalIds") or {}).get("DOI")
+            return {"exists": True, "source": "openalex_title",
                     "resolved_doi": resolved_doi, "crossref_message": None}
 
         return {"exists": False, "source": "no_match", "resolved_doi": None,
@@ -289,7 +295,7 @@ class CitationAgent(BaseAgent):
         return None, None
 
     # ------------------------------------------------------------------ #
-    # DOI metadata consistency + retraction checks (new)
+    # DOI metadata consistency + retraction checks
     # ------------------------------------------------------------------ #
     @staticmethod
     def _crossref_year(msg: Dict[str, Any]) -> Optional[int]:
@@ -366,12 +372,12 @@ class CitationAgent(BaseAgent):
         data = None
         if doi:
             try:
-                data = _clean_service_result(self._s2.get_paper_by_doi(doi))
+                data = _clean_service_result(self._openalex.get_paper_by_doi(doi))
             except Exception:
                 data = None
         if not data:
             try:
-                data = _clean_service_result(self._s2.search_paper_by_title(ref.title))
+                data = _clean_service_result(self._openalex.search_paper_by_title(ref.title))
             except Exception:
                 data = None
         if not data:
@@ -484,7 +490,7 @@ class CitationAgent(BaseAgent):
         if not_found:
             findings.append(
                 f"{not_found} reference(s) could not be found in CrossRef or "
-                f"Semantic Scholar - possibly fabricated."
+                f"OpenAlex - possibly fabricated."
             )
             for r in results:
                 if r["tier"] == NOT_FOUND:

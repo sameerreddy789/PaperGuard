@@ -1,33 +1,37 @@
 """
 Plagiarism Agent.
 
-Finds paper text that matches existing published sources, using only free
-resources (per the implementation plan). For each substantial paragraph:
+Finds paper text that matches existing published sources, using only free,
+keyless resources. For each substantial paragraph:
 
 1. Extract a distinctive key phrase.
-2. Web path      - Serper exact-phrase search (needs SERPER_API_KEY).
-3. Scholarly path- CrossRef bibliographic search (no key) -> Semantic Scholar
-                   abstract for the top candidate.
-4. Similarity is scored THREE ways per candidate, each degrading independently:
+2. Scholarly path- CrossRef bibliographic search (no key) -> OpenAlex abstract
+                   for the top candidate (see services/openalex.py for why
+                   OpenAlex replaced Semantic Scholar here on 2026-07-16).
+3. Similarity is scored THREE ways per candidate, each degrading independently:
      a. n-gram/shingle overlap  - deterministic word-shingle Jaccard overlap
         (no LLM, no API key). Catches verbatim / near-verbatim copy-paste.
      b. Semantic embedding      - cosine similarity of the detector's own
-        DistilBERT embeddings (reuses ``DetectorAgent.embed_text``; needs only
-        torch/transformers, no API key). Catches paraphrased overlap.
+        deberta-v3-large embeddings (reuses ``DetectorAgent.embed_text``; needs
+        only torch/transformers, no API key). Catches paraphrased overlap.
      c. LLM judgment            - Gemini rates similarity 0-100 (needs a key).
         Most nuanced, but the only one that costs a network call + API key.
    The best (max) of whichever are available is used as the paragraph's
    overlap score, so plagiarism scoring degrades gracefully but never fully
    turns off (n-gram overlap always runs; semantic runs whenever the detector
    model loads, which AI-detection already requires).
-5. Cross-agent dedupe: a match is downgraded (not counted as "flagged") when
+4. Cross-agent dedupe: a match is downgraded (not counted as "flagged") when
    the paragraph is both quoted AND cites a reference already extracted from
    the paper -- i.e. it looks like a properly attributed quotation rather than
    plagiarism. See ``_looks_quoted_and_cited``.
 
 The agent is explicit about its limitations: it cannot access Turnitin's private
-student-paper database and only covers open web + open-access scholarly content.
-It is a pre-submission self-check, not a Turnitin replacement.
+student-paper database, has no general web-search layer (Serper -- the one
+option that was keyless-ish -- became impractical to sign up for; no other
+general web-search API works without a paid key as of this writing, see
+PROJECT_REPORT.md), and only covers open-access scholarly content plus a small
+deterministic known-text fingerprint list. It is a pre-submission self-check,
+not a Turnitin replacement.
 
 CLI:  python -m agents.plagiarism_agent path/to/paper.(pdf|md|txt)
 """
@@ -35,7 +39,6 @@ CLI:  python -m agents.plagiarism_agent path/to/paper.(pdf|md|txt)
 from __future__ import annotations
 
 import math
-import os
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -53,7 +56,8 @@ from agents.base import (
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'-]*")
 # Only check paragraphs with at least this many words (skip headers/captions).
 _MIN_PARAGRAPH_WORDS = 30
-# Cap paragraphs checked per paper (protects Serper's 2,500/month credits).
+# Cap paragraphs checked per paper (keeps runtime reasonable; CrossRef/OpenAlex
+# have no hard per-key quota, but every extra paragraph is a network round trip).
 _MAX_PARAGRAPHS = 10
 # Similarity (0-100) at or above which a match is considered significant.
 _SIMILARITY_THRESHOLD = 70
@@ -183,12 +187,11 @@ class PlagiarismAgent(BaseAgent):
     def __init__(self, max_paragraphs: int = _MAX_PARAGRAPHS):
         self.max_paragraphs = max_paragraphs
         self._gemini = get_llm()
-        from services import serper, crossref, semantic_scholar
+        from services import crossref, openalex
 
-        self._serper = serper
         self._crossref = crossref
-        self._s2 = semantic_scholar
-        self._detector = None  # lazy: only load DistilBERT if we reach _select_paragraphs
+        self._openalex = openalex
+        self._detector = None  # lazy: only load the AI detector if we reach _select_paragraphs
 
     def _get_detector(self):
         """Lazily construct the shared DetectorAgent for semantic embeddings."""
@@ -208,7 +211,6 @@ class PlagiarismAgent(BaseAgent):
         body_text, _refs = split_body_and_references(text)
         paragraphs = self._select_paragraphs(body_text or text)
 
-        web_enabled = bool(os.getenv("SERPER_API_KEY"))
         llm_enabled = self._gemini is not None and llm_available()
         detector = self._get_detector()
         semantic_enabled = detector.score_text("probe").get("available", False)
@@ -225,7 +227,7 @@ class PlagiarismAgent(BaseAgent):
 
         for i, (section, para) in enumerate(paragraphs, start=1):
             phrase = self._key_phrase(para)
-            candidates = self._gather_candidates(phrase, web_enabled)
+            candidates = self._gather_candidates(phrase)
             para_shingles = _shingles(para)
             para_embedding = detector.embed_text(para) if semantic_enabled else None
 
@@ -324,7 +326,7 @@ class PlagiarismAgent(BaseAgent):
         downgraded = [c for c in checks if c["downgraded_attributed_quote"]]
 
         findings = self._compose_findings(
-            checks, flagged, downgraded, score, web_enabled, llm_enabled, semantic_enabled
+            checks, flagged, downgraded, score, llm_enabled, semantic_enabled
         )
         status = self._status(score, flagged)
 
@@ -333,7 +335,6 @@ class PlagiarismAgent(BaseAgent):
             "checked_paragraphs": len(checks),
             "flagged_paragraph_count": len(flagged),
             "downgraded_attributed_quote_count": len(downgraded),
-            "web_search_enabled": web_enabled,
             "similarity_scoring_enabled": bool(llm_enabled or semantic_enabled),
             "ngram_overlap_enabled": True,
             "semantic_similarity_enabled": semantic_enabled,
@@ -373,24 +374,10 @@ class PlagiarismAgent(BaseAgent):
     # ------------------------------------------------------------------ #
     # Candidate retrieval
     # ------------------------------------------------------------------ #
-    def _gather_candidates(self, phrase: str, web_enabled: bool) -> List[Dict[str, Any]]:
+    def _gather_candidates(self, phrase: str) -> List[Dict[str, Any]]:
         candidates: List[Dict[str, Any]] = []
 
-        # Web path (Serper) - exact phrase search.
-        if web_enabled:
-            try:
-                results = self._serper.search_web(f'"{phrase}"', num_results=5) or []
-            except Exception:
-                results = []
-            for r in results[:5]:
-                candidates.append({
-                    "source": "web",
-                    "title": r.get("title"),
-                    "link": r.get("link"),
-                    "snippet": r.get("snippet", ""),
-                })
-
-        # Scholarly path (CrossRef -> Semantic Scholar abstract). No key needed.
+        # Scholarly path (CrossRef -> OpenAlex abstract). No key needed for either.
         # CrossRef's search_works_by_title() matches on the TITLE field, so a
         # key phrase pulled from a body paragraph (never a paper's own title)
         # routinely returns an unrelated top hit -- confirmed on a synthetic
@@ -412,24 +399,24 @@ class PlagiarismAgent(BaseAgent):
                 "snippet": abstract or "",
             })
 
-        # Fallback: Semantic Scholar's own /paper/search matches across title +
-        # (indexed) content more broadly than CrossRef's title-only search, and
-        # returns an abstract directly -- no separate DOI lookup needed. Used
-        # whenever CrossRef didn't return a keyword-relevant hit, so a body
-        # paragraph phrase still has a real chance of finding its source.
+        # Fallback: OpenAlex's own /works search matches across title + more
+        # broadly than CrossRef's title-only search, and returns an abstract
+        # directly -- no separate DOI lookup needed. Used whenever CrossRef
+        # didn't return a keyword-relevant hit, so a body paragraph phrase
+        # still has a real chance of finding its source.
         if not item:
             try:
-                s2_hit = self._s2.search_paper_by_title(phrase)
+                oa_hit = self._openalex.search_paper_by_title(phrase)
             except Exception:
-                s2_hit = None
-            if s2_hit and "error" not in s2_hit and self._keyword_overlap(
-                phrase, s2_hit.get("title") or ""
+                oa_hit = None
+            if oa_hit and "error" not in oa_hit and self._keyword_overlap(
+                phrase, oa_hit.get("title") or ""
             ):
                 candidates.append({
                     "source": "scholarly",
-                    "title": s2_hit.get("title"),
-                    "link": s2_hit.get("url"),
-                    "snippet": (s2_hit.get("abstract") or ""),
+                    "title": oa_hit.get("title"),
+                    "link": oa_hit.get("url"),
+                    "snippet": (oa_hit.get("abstract") or ""),
                 })
         return candidates
 
@@ -493,7 +480,7 @@ class PlagiarismAgent(BaseAgent):
         if not doi:
             return None
         try:
-            data = self._s2.get_paper_by_doi(doi)
+            data = self._openalex.get_paper_by_doi(doi)
         except Exception:
             data = None
         if not data or not isinstance(data, dict) or "error" in data:
@@ -536,7 +523,6 @@ class PlagiarismAgent(BaseAgent):
         flagged: List[Dict[str, Any]],
         downgraded: List[Dict[str, Any]],
         score: Optional[float],
-        web_enabled: bool,
         llm_enabled: bool,
         semantic_enabled: bool,
     ) -> List[str]:
@@ -557,11 +543,6 @@ class PlagiarismAgent(BaseAgent):
                 f"({c['best_similarity']}%) but appears to be a quoted, properly cited "
                 f"passage - not counted as plagiarism (cross-agent dedupe)."
             )
-        if not web_enabled:
-            findings.append(
-                "Web search disabled (no SERPER_API_KEY); used the open-access scholarly "
-                "path only. Add a Serper key for broader web coverage."
-            )
         if not semantic_enabled:
             findings.append(
                 "Semantic-embedding similarity unavailable (detector model not loaded); "
@@ -572,7 +553,7 @@ class PlagiarismAgent(BaseAgent):
                 "LLM similarity judgment skipped (no Gemini API key); relying on "
                 "n-gram overlap" + (" + semantic embeddings" if semantic_enabled else "") + "."
             )
-        if not flagged and (web_enabled or llm_enabled or semantic_enabled):
+        if not flagged and (llm_enabled or semantic_enabled):
             findings.append("No paragraph exceeded the similarity threshold.")
         findings.append("Limitation: " + _LIMITATION_NOTE)
         return findings

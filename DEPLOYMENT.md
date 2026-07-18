@@ -48,9 +48,8 @@ Dockerfile:
 | `PAPERGUARD_CREW_MODEL` | optional | e.g. `dashscope/qwen-plus` for the crew LLM |
 | `PAPERGUARD_CREW_API_BASE` | optional | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` |
 | `PAPERGUARD_DASHSCOPE_API_BASE` | optional | same endpoint, for the sub-agent Qwen client |
-| `SERPER_API_KEY` | optional | enables web plagiarism search |
-| `SEMANTIC_SCHOLAR_API_KEY` | optional | higher rate limits |
-| `CROSSREF_EMAIL` | optional | polite-pool CrossRef rate limits |
+| `CROSSREF_EMAIL` | optional | polite-pool CrossRef + OpenAlex rate limits (reused by both) |
+| `OPENALEX_EMAIL` | optional | overrides `CROSSREF_EMAIL` for OpenAlex's polite pool specifically |
 | `PAPERGUARD_DETECTOR_MODEL` | optional | defaults to the HF repo; override for a local/alt model |
 | `PORT` | no | defaults to `8000`; the platform usually sets this itself |
 

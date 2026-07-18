@@ -80,8 +80,8 @@ Before deleting anything, I confirmed v2.0 loads and scores correctly straight f
 | Plagiarism: n-gram/shingle overlap | ✅ Yes — pure Python, no network |
 | Plagiarism: semantic embedding similarity | ✅ Yes — reuses the local detector model |
 | Writing quality: structure + readability | ✅ Yes — regex/math only |
-| Citation abstract retrieval + claim verification | ❌ Needs Semantic Scholar (free, keyless) + an LLM key for the claim-verdict step |
-| Plagiarism: web search matching | ❌ Needs `SERPER_API_KEY` |
+| Citation abstract retrieval + claim verification | ✅ Existence/abstract now via OpenAlex (no key at all); ❌ still needs an LLM key for the claim-verdict step |
+| Plagiarism: web search matching | ❌ Removed — no viable keyless web-search API exists (see Section 11) |
 | Plagiarism: LLM similarity judgment | ❌ Needs an LLM key (Gemini or DashScope) |
 | Writing quality: LLM prose review | ❌ Needs an LLM key |
 | CrewAI multi-agent synthesis/summary | ❌ Needs an LLM key (falls back to a deterministic engine-mode summary without one) |
@@ -99,16 +99,16 @@ Before deleting anything, I confirmed v2.0 loads and scores correctly straight f
 **Known gap:** 0% recall on disguised/style-masked AI (Section 1's finding directly addresses this).
 
 ### CitationAgent
-**Does:** For every reference — checks it exists (CrossRef, then Semantic Scholar), checks it hasn't been retracted, checks its DOI metadata (title/year/author) matches what's cited, and (with an LLM key) verifies the cited work actually supports the claim it's used for.
-**Requires:** CrossRef (free, no key) is enough for existence + retraction + DOI-consistency. Semantic Scholar (free, keyless but rate-limited) for abstracts. An LLM key only for the claim-verification step.
-**Free-tier limits:** CrossRef has no published hard limit but requests a `mailto` email for the "polite pool" (higher priority, no throttling) — we already send one via `CROSSREF_EMAIL`. Semantic Scholar: ~100 requests/5 min unauthenticated, 1 req/sec with a free API key.
-**Is that enough for us?** Yes for a single-paper-at-a-time demo/hackathon tool. Would need a Semantic Scholar API key for anything with real concurrent traffic.
+**Does:** For every reference — checks it exists (CrossRef, then OpenAlex), checks it hasn't been retracted, checks its DOI metadata (title/year/author) matches what's cited, and (with an LLM key) verifies the cited work actually supports the claim it's used for.
+**Requires:** CrossRef (free, no key) is enough for existence + retraction + DOI-consistency. OpenAlex (free, **no key at all** — see Section 11) for abstracts. An LLM key only for the claim-verification step.
+**Free-tier limits:** CrossRef has no published hard limit but requests a `mailto` email for the "polite pool" (higher priority, no throttling) — we already send one via `CROSSREF_EMAIL`, which OpenAlex reuses for its own polite pool. OpenAlex's free daily limit is generous enough (per their own docs, $1/day of usage credit even with no key) that this project's single-paper-at-a-time traffic won't come close to it.
+**Is that enough for us?** Yes — and unlike the Semantic Scholar setup this replaced, there's no signup wait or rate-limit ceiling to plan around at all.
 
 ### PlagiarismAgent
-**Does:** For flagged paragraphs, checks three independent overlap signals — deterministic word-shingle overlap (catches copy-paste), semantic embedding similarity (catches paraphrasing), and LLM judgment (most nuanced) — takes the best available. Downgrades matches that are properly quoted-and-cited instead of flagging them as plagiarism.
-**Requires:** Nothing for shingle+semantic; Serper (web search) and an LLM key are optional enhancements.
-**Free-tier limits:** Serper gives 2,500 free queries, no credit card, then $0.30-$1/1,000 queries after.
-**Is that enough for us?** For a demo, yes — 2,500 free queries is a lot of single-paper checks (each paper only checks ≤10 flagged paragraphs). For sustained use you'd hit the wall eventually and need to pay Serper's cheap per-query rate.
+**Does:** For flagged paragraphs, checks a scholarly candidate (CrossRef + OpenAlex, both keyless) plus a small deterministic known-text fingerprint list, then scores overlap three ways — deterministic word-shingle overlap (catches copy-paste), semantic embedding similarity (catches paraphrasing), and LLM judgment (most nuanced) — takes the best available. Downgrades matches that are properly quoted-and-cited instead of flagging them as plagiarism.
+**Requires:** Nothing for shingle+semantic+scholarly+fingerprints; an LLM key is the only optional enhancement remaining.
+**Free-tier limits:** None left to track — CrossRef and OpenAlex are both keyless with generous limits. (Serper, the previous web-search layer, was removed on 2026-07-16 after its signup became unreliable and no viable keyless alternative was found — see Section 11.)
+**Is that enough for us?** For a demo, yes. General open-web phrase matching is gone (a real, disclosed coverage narrowing), but the scholarly + fingerprint + n-gram + semantic layers together still catch the cases this project has actually tested (copy-paste, paraphrase, famous uncredited quotes).
 
 ### QualityAgent
 **Does:** Checks structural completeness (are Abstract/Intro/Methods/etc. present), readability stats (sentence length, vocabulary diversity — pure math), and with an LLM key, per-section prose critique (tone, hedging, clarity).
@@ -203,7 +203,7 @@ Three concrete reasons, not generic boilerplate:
 ### Fixes applied (code, not just documentation)
 - **`agents/orchestrator.py`**: added `_annotate_heatmap_with_tone()`, which cross-references each AI-heatmap paragraph against `QualityAgent`'s independently-derived section tone (casual/mixed/academic) and tags conflicts (`ai_score_conflicts_with_tone`) without altering the underlying score. Widened `_cross_agent_conflicts()` with a new rule: AI score ≥ threshold + ≥2 sections independently rated casual/mixed + zero patchwork outliers now emits an explicit `"LOW-CONFIDENCE AI VERDICT"` conflict note naming the specific conflicting sections, rather than letting a bare "Likely AI" stand unqualified.
 - **`agents/ai_detection.py`**: added a second, lower-confidence `near_outliers` tier (`modified_zscore >= 2.0`) alongside the existing strict `outliers` tier (`>= 3.5`), reported separately so genuine-but-moderate style shifts on short documents are surfaced instead of silently zeroed out. The primary threshold's precision is unchanged.
-- **`agents/plagiarism_agent.py`**: (a) added a `_keyword_overlap()` relevance guard so a CrossRef title-search hit is only trusted if it shares real distinctive words with the query phrase, filtering out the kind of unrelated top hit that caused the miss; (b) added a Semantic Scholar `/paper/search` fallback (broader matching than CrossRef's title-only search) when CrossRef doesn't return a relevant hit; (c) added a small, explicitly-scoped `_KNOWN_TEXT_FINGERPRINTS` list (WHO health definition, UDHR Article 1, one literary example) checked deterministically before any API call, as a narrow, cheap supplement — not a general plagiarism-detection replacement — for the specific case of extremely famous passages that will never be retrievable via title-search.
+- **`agents/plagiarism_agent.py`**: (a) added a `_keyword_overlap()` relevance guard so a CrossRef title-search hit is only trusted if it shares real distinctive words with the query phrase, filtering out the kind of unrelated top hit that caused the miss; (b) added a scholarly `/works` search fallback (broader matching than CrossRef's title-only search; this fallback runs through OpenAlex as of Section 11's swap) when CrossRef doesn't return a relevant hit; (c) added a small, explicitly-scoped `_KNOWN_TEXT_FINGERPRINTS` list (WHO health definition, UDHR Article 1, one literary example) checked deterministically before any API call, as a narrow, cheap supplement — not a general plagiarism-detection replacement — for the specific case of extremely famous passages that will never be retrievable via title-search.
 
 ### Verified after the fix (same test paper, same CLI command, before/after)
 | Signal | Before | After |
@@ -241,4 +241,31 @@ This round of testing is the more important validation of the two: it's easy to 
 
 ---
 
-*Compiled 2026-07-14, updated 2026-07-16 (Section 10). Model comparison (Section 1) and cleanup (Section 2) were executed and verified live in this session, not estimated. Section 10's finding and fixes were reproduced and verified end-to-end via the CLI, before/after, on the same synthetic test paper. Competitive/pricing data (Sections 3, 5, 7) is sourced from web search and cited inline by domain; treat pricing figures as approximate and subject to change.*
+## 11. Serper and Semantic Scholar: signup problems, checked for real alternatives, one swapped, one removed
+
+**Context:** Semantic Scholar's API key request form explicitly states it prioritizes academic/institutional/nonprofit/government requests, reviewing all other requests case-by-case — a real, non-trivial wait for an individual/hackathon applicant. Separately, Serper's signup form was returning a hard "It is not possible to register at this moment" error (a Cloudflare bot-check / signup-throttling issue on their end, not something fixable from our side). Rather than leave the app depending on two services that can't be reliably obtained, I checked for genuine alternatives — not just "wait and hope" — and made two different calls based on what was actually available.
+
+### Semantic Scholar → replaced with OpenAlex (a real, working swap)
+
+**Also worth noting independent of the signup issue:** in testing this session, Semantic Scholar's public (unauthenticated) API was already returning persistent `429 Too Many Requests` errors on ordinary single-paper-at-a-time usage — so even without the key-request friction, the unauthenticated path was already unreliable for this project's needs.
+
+Checked OpenAlex (openalex.org) live against its own documentation: it is a fully open, CC0-licensed index of 250M+ scholarly works, and its `/works` search and `/works/doi:{doi}` lookup endpoints work with **zero signup, zero API key** for basic queries — confirmed directly from OpenAlex's own quickstart docs ("No login or API key required for basic queries"). An optional `mailto` parameter (exactly like CrossRef's "polite pool," which this project was already using) gets faster, more reliable service without needing any key or approval process at all.
+
+**Implemented** `services/openalex.py` as a drop-in replacement, matching the same return shape as the retired `services/semantic_scholar.py` (`title`, `abstract`, `authors`, `year`, `url`, `externalIds.DOI`, and the same `{"error": "not_found"}` sentinel) so `agents/citation_agent.py` and `agents/plagiarism_agent.py` needed only an import swap, not a rewrite. One real technical wrinkle handled: OpenAlex doesn't store plaintext abstracts (a legal/licensing constraint on their end) — it stores an `abstract_inverted_index` (`{word: [positions]}`) instead, which `services/openalex.py`'s `_reconstruct_abstract()` rebuilds into plain text.
+
+**Verdict: fully replaced, no functionality lost.** `SEMANTIC_SCHOLAR_API_KEY` is removed from `.env.example` entirely — there is nothing to wait for anymore.
+
+### Serper → removed outright, no viable free/keyless alternative exists
+
+Checked the realistic web-search API options as of this writing, not just assumed none exist:
+- **Brave Search API** dropped its free tier entirely (confirmed via their own recent announcement) — now bills to a saved card from the first request, with only a small monthly credit.
+- **DuckDuckGo's public API** only returns "Instant Answer" boxes (definitions, infobox facts) — it does not return ranked web search results at all, so it cannot do what Serper's `search_web()` was used for (exact-phrase web matching for plagiarism).
+- Every other SERP API found (SerpApi, Scrapingdog, DataForSEO, SearchApi, etc.) requires the same signup-plus-card friction as Serper, with no meaningfully easier free tier.
+
+**Verdict: removed, not replaced.** `services/serper.py` is deleted, along with the web-search candidate path in `agents/plagiarism_agent.py` and the Serper key field in `app.py`'s sidebar. This narrows plagiarism detection's coverage (no general open-web phrase matching), but it does not disable the agent: n-gram/shingle overlap, semantic embedding similarity, LLM judgment (when available), and the known-text fingerprint list (Section 10) all continue to work unchanged, all with zero keys required. `SERPER_API_KEY` is removed from `.env.example`.
+
+**Why removal, not "wait for the key" or "leave it broken silently":** code that depends on a service you cannot currently obtain access to is worse than code that's honest about not having that capability. The agent's existing findings-text and `_LIMITATION_NOTE` already disclose this narrowed scope explicitly to the user, consistent with the project's overall stance of being upfront about detection limitations rather than overclaiming coverage.
+
+---
+
+*Compiled 2026-07-14, updated 2026-07-16 (Sections 10-11). Model comparison (Section 1) and cleanup (Section 2) were executed and verified live in this session, not estimated. Section 10's finding and fixes were reproduced and verified end-to-end via the CLI, before/after, on the same synthetic test paper. Section 11's OpenAlex swap and Serper removal were verified by testing OpenAlex's documented no-key access directly and by researching the actual state of alternative web-search APIs, not assumed. Competitive/pricing data (Sections 3, 5, 7) is sourced from web search and cited inline by domain; treat pricing figures as approximate and subject to change.*

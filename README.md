@@ -73,9 +73,9 @@ synthesises, so fact-lookups are trustworthy.
 
 | Agent | Role | Tools |
 |:---|:---|:---|
-| Citation Verifier | Existence + 4-tier claim support | CrossRef, Semantic Scholar, LLM claim check |
+| Citation Verifier | Existence + 4-tier claim support | CrossRef, OpenAlex, LLM claim check |
 | AI-Detection Analyst | Per-paragraph AI % + patchwork | Fine-tuned detector, embeddings (no LLM) |
-| Plagiarism Checker | Overlap with open web + scholarly | Serper, CrossRef, Semantic Scholar, LLM similarity |
+| Plagiarism Checker | Overlap with open-access scholarly + known-text | CrossRef, OpenAlex, LLM similarity |
 | Writing-Quality Reviewer | Structure, readability, prose | Readability math, LLM prose review |
 | Orchestrator / Editor | Coordinates, resolves cross-agent conflicts, builds report | LLM synthesis |
 
@@ -90,8 +90,7 @@ synthesises, so fact-lookups are trustworthy.
 | Reasoning LLM | Gemini (default); **Qwen via Alibaba DashScope** for deployment (LiteLLM) |
 | AI-detection model | `desklib/ai-text-detector-v1.01` (deberta-v3-large, local via `transformers`) |
 | PDF parsing | pymupdf4llm (layout-aware, two-column safe) |
-| Reference APIs | CrossRef + Semantic Scholar |
-| Web search | Serper |
+| Reference APIs | CrossRef + OpenAlex (both keyless) |
 | UI | Streamlit |
 | Deployment target | **Alibaba Cloud** (Function Compute 3.0 / PAI-EAS) |
 
@@ -110,7 +109,7 @@ paperguard/
 │   ├── pdf_parser.py  text_chunker.py  reference_parser.py
 │
 ├── services/                  # External APIs + cache
-│   ├── gemini.py (google-genai)  crossref.py  semantic_scholar.py  serper.py  cache.py
+│   ├── gemini.py (google-genai)  crossref.py  openalex.py  cache.py
 │
 ├── agents/
 │   ├── base.py                # shared BaseAgent + CLI harness

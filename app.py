@@ -547,8 +547,6 @@ with st.sidebar:
     st.header("Settings")
     gemini_key = st.text_input("Gemini API key", type="password",
                                help="Enables the Linguistic agent + CrewAI crew. Without it, detection runs on the model alone.")
-    serper_key = st.text_input("Serper API key (optional)", type="password",
-                               help="Enables web plagiarism search.")
     model_path = st.text_input("Detector model", value=_default_model,
                                help="Local path or HuggingFace repo id.")
     use_crew = st.toggle("Use CrewAI multi-agent crew", value=True,
@@ -558,8 +556,6 @@ with st.sidebar:
 
 if gemini_key:
     os.environ["GEMINI_API_KEY"] = gemini_key.strip()
-if serper_key:
-    os.environ["SERPER_API_KEY"] = serper_key.strip()
 
 
 # --------------------------------------------------------------------------- #
@@ -579,7 +575,7 @@ if run and uploaded is not None:
     file_bytes = uploaded.getvalue()
     suffix = Path(uploaded.name).suffix or ".txt"
     cache_key = hashlib.sha256(
-        file_bytes + f"|{use_crew}|{model_path}|{bool(gemini_key)}|{bool(serper_key)}".encode()
+        file_bytes + f"|{use_crew}|{model_path}|{bool(gemini_key)}".encode()
     ).hexdigest()
     with st.spinner("Running the agent society... this can take 1-3 minutes on first run."):
         try:

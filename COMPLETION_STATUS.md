@@ -37,7 +37,7 @@ verification** as a differentiator.
 | PDF extraction (pymupdf4llm) | `core/pdf_parser.py` |
 | Text chunker (sections→paragraphs→sentences) | `core/text_chunker.py` |
 | Reference parser (LLM + **improved heuristic**: APA/IEEE/numeric title+author+DOI) | `core/reference_parser.py` |
-| Service wrappers (Gemini/CrossRef/Semantic Scholar/Serper) + JSON cache | `services/*.py` |
+| Service wrappers (Gemini/CrossRef/OpenAlex) + JSON cache | `services/*.py` |
 | Data models (report, reference) | `models/*.py` |
 
 ### Phase 1.5 — Detector model (✅)
@@ -152,7 +152,7 @@ used an incompatible model architecture/class for the new model).
 | :--- | :--- |
 | Citation verification (existence + 4-tier claim support) | `agents/citation_agent.py` |
 | Writing quality (structure + readability + prose) | `agents/quality_agent.py` |
-| Plagiarism (Serper + scholarly + LLM similarity) | `agents/plagiarism_agent.py` |
+| Plagiarism (scholarly + known-text fingerprints + LLM similarity) | `agents/plagiarism_agent.py` |
 
 Shared foundation `agents/base.py` (lazy imports, `.pdf/.md/.txt` loading, CLI).
 
@@ -240,6 +240,9 @@ deployment") and **`DEPLOYMENT.md`** for the exact steps.
 | API | Needed? | Notes |
 | :--- | :---: | :--- |
 | Gemini **or** DashScope (Qwen) | for LLM tasks + crew | Set either `GEMINI_API_KEY` or `DASHSCOPE_API_KEY`; `services/llm.py` auto-selects. Currently no valid key in `.env`. See `.env.example`. |
-| Serper | for web plagiarism search | optional (n-gram + semantic similarity still work without it) |
-| Semantic Scholar | optional | improves abstract retrieval |
+| OpenAlex | no key | abstract retrieval + citation-existence fallback (replaced Semantic Scholar 2026-07-16, see `PROJECT_REPORT.md` §11) |
 | CrossRef | no key | unlimited; also powers retraction + DOI-consistency checks |
+
+**Removed 2026-07-16:** Serper (general web-search plagiarism matching) and
+Semantic Scholar (replaced by OpenAlex above) — both had unreliable/gated
+signup with no workable path forward; see `PROJECT_REPORT.md` §11.

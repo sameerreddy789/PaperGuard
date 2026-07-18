@@ -59,7 +59,7 @@ credentials that were not available in the environment this was built in.
   ECS+Docker fallback (`DEPLOYMENT.md` §3a/3b/3c).
 - [ ] Run the live smoke-test checklist against the deployed URL
   (`DEPLOYMENT.md` §4): health check, small-text upload, real-PDF upload +
-  annotated-PDF export, crew on/off toggle, live CrossRef/Semantic Scholar
+  annotated-PDF export, crew on/off toggle, live CrossRef/OpenAlex
   reachability.
 - [ ] If demo timing matters, address cold-start (keep ≥1 warm instance or use
   PAI-EAS/ECS instead of pure scale-to-zero FC — see `DEPLOYMENT.md` "Notes").
@@ -75,7 +75,9 @@ credentials that were not available in the environment this was built in.
   (PDF text reflow/hyphenation can make `highlight_pdf`'s snippet search miss
   spans — see the "not_found" stat it reports).
 - Broaden plagiarism retrieval further (more open-access scholarly sources
-  beyond CrossRef/Semantic Scholar; more Serper query variants).
+  beyond CrossRef/OpenAlex; a general web-search layer if/when a workable
+  keyless or easily-obtainable option becomes available — see
+  `PROJECT_REPORT.md` Section 11 for what was checked and ruled out).
 - Live browser smoke-test of `app.py` with a real file upload through the
   actual Streamlit UI (this session verified the container serves the app and
   responds correctly over HTTP, but did not click through the UI in a browser).
@@ -116,17 +118,33 @@ credentials that were not available in the environment this was built in.
   could return a completely unrelated top hit with no relevance check —
   confirmed missing an uncredited verbatim WHO-constitution quote on the
   synthetic test paper above. Added a keyword-overlap relevance guard, a
-  Semantic Scholar search fallback, and a small deterministic known-text
-  fingerprint list (WHO health definition, UDHR Article 1) for the handful of
-  extremely famous passages title-search will never retrieve. See
-  `PROJECT_REPORT.md` Section 10 for the before/after numbers. This remains a
-  narrow supplement — general plagiarism retrieval coverage is still bounded
-  by the "Nice-to-haves" item above.
+  scholarly search fallback (now via OpenAlex, see below), and a small
+  deterministic known-text fingerprint list (WHO health definition, UDHR
+  Article 1) for the handful of extremely famous passages title-search will
+  never retrieve. See `PROJECT_REPORT.md` Section 10 for the before/after
+  numbers. This remains a narrow supplement — general plagiarism retrieval
+  coverage is still bounded by the "Nice-to-haves" item above.
 - Free-tier compute limits: torch + crewai + chromadb is heavy (~830MB image);
   size the Alibaba instance accordingly, or serve the detector via HF Inference
   if a tighter memory budget is needed.
-- No valid `GEMINI_API_KEY` in `.env` currently — set either that or
-  `DASHSCOPE_API_KEY` before a live deployment (see `.env.example`).
+- **Resolved 2026-07-16:** `GEMINI_API_KEY` is set and confirmed working (a
+  stale, invalid Windows User/Machine-level env var was silently shadowing the
+  real `.env` key; fixed by loading `.env` with `override=True` in
+  `agents/base.py`). Default LLM model is now `gemini-3.1-flash-lite`.
+- **Resolved 2026-07-16:** `SEMANTIC_SCHOLAR_API_KEY` and `SERPER_API_KEY`
+  were both unobtainable in practice (Semantic Scholar's key form prioritizes
+  academic/institutional applicants; Serper's signup form was erroring out).
+  Rather than leave the app depending on services that can't be reliably
+  obtained: **Semantic Scholar was replaced with OpenAlex** (`services/openalex.py`)
+  — genuinely no signup/key needed, confirmed live against OpenAlex's own docs
+  — a full functional swap, nothing lost. **Serper was removed outright** — no
+  viable keyless (or even easily-signup-able) general web-search API exists as
+  of this writing (Brave dropped its free tier, DuckDuckGo's public API
+  doesn't return real search results, every other SERP API needs the same
+  signup friction). Plagiarism detection still works via n-gram overlap +
+  semantic embeddings + the known-text fingerprint list, just without a
+  general open-web phrase-matching layer. See `PROJECT_REPORT.md` Section 11
+  for the full research and reasoning.
 - The annotated-PDF export is best-effort: `highlight_pdf`'s text search can
   miss a span if the PDF's text layer reflows/hyphenates it differently than
   the extracted paragraph text; it reports a `not_found` count rather than

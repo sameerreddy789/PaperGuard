@@ -134,6 +134,43 @@ commercial-SaaS category was referenced (not directly testable, no API key):
   wrapper's underlying DeBERTa encoder (`bundle.model.model`) instead of
   `output_hidden_states`, since the custom architecture's `forward` doesn't
   expose that kwarg.
+
+### Phase 1.8 — Positioning: lead with citation-integrity, not AI detection (✅ done, 2026-07-16)
+
+`PROJECT_REPORT.md` Section 8 identified a strategic tension: competing
+head-on with Turnitin/GPTZero/Originality.ai/Copyleaks on AI-detection accuracy
+is a losing framing (they have more training data and institutional trust;
+our own benchmark shows 75%, not 100%, disguised-AI recall even after the
+Phase 1.7 swap). The stronger, genuinely differentiated capability is
+`CitationAgent`'s claim-support and retraction verification — no major
+commercial tool does either. Decided to reposition the pitch and UI around
+this rather than lead with the crowded AI/plagiarism category.
+
+**Changes made** (pitch/UI only — no detection logic, thresholds, or scoring
+changed):
+- `README.md`: rewrote the tagline, "Why PaperGuard" section, and competitive
+  table to lead with citation existence/retraction/claim-verification; added
+  a "How citation verification works" section before "How AI detection
+  works"; reordered the agent-society table; updated "Honest limitations" to
+  frame AI/plagiarism as supporting signals.
+- `app.py`: `render_dashboard`'s two headline cards now show Citation Health
+  first and AI-Generated Content second (previously AI% / Similarity% led,
+  with Citation Health as a secondary `st.metric`); Similarity/Plagiarism
+  demoted to a secondary metric alongside Writing Quality; page subtitle
+  rewritten; tab order changed to `["Citations", "Overlay", "AI Heatmap", ...]`
+  (Citations first); `build_pdf`'s metrics table and per-agent findings order
+  updated to match.
+- `agents/orchestrator.py`: `_headline_metrics()`'s docstring updated to note
+  which metric the UI leads with is a presentation choice, not a computation
+  change — the function still computes all four metrics unconditionally.
+
+**Verified, not just changed:** re-ran the full CLI pipeline (engine mode) on
+`tests/sample_papers/green_spaces_test.md` after the change — `AGENT RESULTS`
+output was byte-identical to before the repositioning (confirming no
+computation was affected). Separately loaded the resulting report through
+`app.py`'s actual `build_pdf()` function (not just a syntax check) and
+confirmed `citation_health_band` resolves correctly and the PDF builds
+successfully with the new metrics-table and findings order.
 - Added `sentencepiece` to `requirements.txt` (needed for the DeBERTa-v2/v3
   tokenizer; the old DistilBERT tokenizer didn't require it).
 
@@ -194,7 +231,7 @@ backend, and a verified container.
 | Structured hard facts | `models/report.py`, `agents/orchestrator.py` | `Report.conflict_notes` (fabricated/retracted citation counts, AI-vs-structure conflicts) and `Report.headline_metrics` (deterministic AI%/Similarity%/Citation-Health/Quality + bands) are now **always** populated by `_build_report`, independent of whether the LLM crew ran — previously these facts only reached the user if the LLM chose to mention them in its prose summary. |
 | Plagiarism: 3-signal scoring + dedupe | `agents/plagiarism_agent.py` | Each candidate match is now scored by (a) deterministic word-shingle **Jaccard n-gram overlap** (no LLM/key needed, catches verbatim copying), (b) **semantic cosine similarity** reusing `DetectorAgent.embed_text` (no new model/dependency), (c) the existing LLM judgment — the best available score wins, so plagiarism detection degrades gracefully instead of going fully dark without a Gemini key. Added `_looks_quoted_and_cited`: a paragraph that is both quoted and matches an already-extracted `Reference` is **downgraded** (not counted as plagiarism) rather than flagged — cross-agent dedupe with the citation agent. |
 | Citation: retraction + DOI-consistency | `services/crossref.py`, `agents/citation_agent.py` | Added `get_retraction_notices` (reads CrossRef's `message['updated-by']`, confirmed against a live API call on a real retracted paper — Wakefield's 1998 Lancet MMR paper). Added `_check_retraction` and `_check_doi_consistency` (title/year/first-author vs. the resolved CrossRef record) to every reference; both feed into `retracted_count`/`doi_mismatch_count`, new findings, a citation-health penalty, and `status="failed"` on any retraction. |
-| Integrity Dashboard + combined overlay | `app.py` | `render_dashboard` gives the two Turnitin-style headline numbers (AI% / Similarity%) visual priority with band coloring, plus a "Hard facts" panel rendering `conflict_notes`. New `render_overlay` tab joins the AI-detection heatmap with plagiarism matches (by normalized paragraph **text**, not index — the two agents select different paragraph subsets) and stylometric outliers into one per-paragraph view with inline badges. `build_pdf` now reads the same `headline_metrics`/`conflict_notes` fields so the PDF and UI never disagree. |
+| Integrity Dashboard + combined overlay | `app.py` | (Original version) `render_dashboard` gave the two Turnitin-style headline numbers (AI% / Similarity%) visual priority with band coloring, plus a "Hard facts" panel rendering `conflict_notes`. **Repositioned 2026-07-16** to lead with Citation Health instead — see Phase 1.8 below and `PROJECT_REPORT.md` Sections 7-8-12. New `render_overlay` tab joins the AI-detection heatmap with plagiarism matches (by normalized paragraph **text**, not index — the two agents select different paragraph subsets) and stylometric outliers into one per-paragraph view with inline badges. `build_pdf` now reads the same `headline_metrics`/`conflict_notes` fields so the PDF and UI never disagree. |
 | Annotated PDF export | `core/pdf_parser.py`, `app.py` | New `highlight_pdf` opens the **original** uploaded PDF bytes with PyMuPDF (`fitz`) and highlights flagged spans in place via `page.search_for` + `add_highlight_annot` — deliberately avoids rebuilding a full text-to-bbox pipeline (pymupdf4llm's Markdown extraction discards that). `spans_from_report` builds the highlight list from likely-AI paragraphs, flagged plagiarism matches, and patchwork outliers. Degrades gracefully (reports a `not_found` count for spans that don't re-locate, e.g. due to PDF text reflow). |
 | Qwen/DashScope LLM backend | `services/dashscope_llm.py`, `services/llm.py`, `agents/base.py`, `core/reference_parser.py` | New OpenAI-compatible Qwen client (`services/dashscope_llm.py`) with the identical `call_llm`/`call_llm_json` contract as `services/gemini.py`. New `services/llm.py` selects between them via `PAPERGUARD_LLM_PROVIDER` (`auto`/`gemini`/`dashscope`; auto prefers DashScope only if it's the *only* key set). `agents.base.get_llm()` now returns this selector, so every existing sub-agent call site (citation/plagiarism/quality/reference parsing) works unchanged on either backend. (The crew-level LLM, `agents/orchestrator.py`, was already provider-agnostic via CrewAI/LiteLLM's `PAPERGUARD_CREW_MODEL`.) |
 | Containerization | `Dockerfile`, `.dockerignore`, `DEPLOYMENT.md` | CPU-only PyTorch (explicit `--index-url .../whl/cpu` layer, overridable for GPU builds), non-root user, `$PORT`-driven, `HEALTHCHECK` against Streamlit's `/_stcore/health`. **Actually built and run in this environment**: `docker build` succeeded (827MB image), `docker run` started the container, and both `GET /` and `GET /_stcore/health` returned HTTP 200 while Docker's own `HEALTHCHECK` independently reported the container as `(healthy)`. `DEPLOYMENT.md` documents the ACR push + Function Compute 3.0 / PAI-EAS / ECS deployment steps and a live smoke-test checklist. |

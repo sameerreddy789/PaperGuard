@@ -126,12 +126,17 @@ def _fmt(v: Any, suffix: str = "") -> str:
 # --------------------------------------------------------------------------- #
 def render_dashboard(report: Dict[str, Any]) -> None:
     """
-    Integrity Dashboard: the two Turnitin-style headline numbers (AI % and
-    Similarity %) get top billing, sized and colored by band; Citation Health
-    and Writing Quality are secondary. Uses ``report['headline_metrics']``
-    (computed deterministically by the orchestrator, task-1 fix) rather than
-    re-deriving thresholds here, so the UI and any other consumer (PDF export,
-    API) always agree on the same numbers.
+    Integrity Dashboard: Citation Health gets top billing as PaperGuard's
+    primary differentiator (existence + retraction + DOI-consistency + claim
+    support -- no major commercial tool checks the latter two), with AI% and
+    Similarity% shown as supporting signals rather than the headline (see
+    PROJECT_REPORT.md Sections 7-8 for the positioning rationale: AI/plagiarism
+    detection is a crowded category we're structurally behind in, citation
+    verification is the genuinely differentiated capability). Uses
+    ``report['headline_metrics']`` (computed deterministically by the
+    orchestrator, task-1 fix) rather than re-deriving thresholds here, so the
+    UI and any other consumer (PDF export, API) always agree on the same
+    numbers.
     """
     h = report.get("headline_metrics") or {}
     cite = _meta(report, "CitationAgent")
@@ -161,24 +166,25 @@ def render_dashboard(report: Dict[str, Any]) -> None:
                 unsafe_allow_html=True,
             )
 
-    # --- Two Turnitin-style headline numbers, given visual priority. --- #
+    # --- Citation Health leads: PaperGuard's differentiator, not AI%/Similarity%. --- #
     hc1, hc2 = st.columns(2)
     _headline_card(
-        hc1, "AI-Generated Content", h.get("ai_percent"), h.get("ai_band", "unknown"),
-        "desklib deberta-v3-large detector - indicator, not a verdict.",
+        hc1, "Citation Health", h.get("citation_health_percent"), h.get("citation_health_band", "unknown"),
+        f"{h.get('not_found_citation_count', 0)} not found · "
+        f"{h.get('retracted_citation_count', 0)} retracted -- existence, retraction, "
+        f"DOI-consistency, and claim support.",
     )
     _headline_card(
-        hc2, "Similarity / Plagiarism", h.get("similarity_percent"), h.get("similarity_band", "unknown"),
-        "Open web + open-access scholarly sources only.",
+        hc2, "AI-Generated Content", h.get("ai_percent"), h.get("ai_band", "unknown"),
+        "desklib deberta-v3-large detector - indicator, not a verdict.",
     )
 
     st.write("")
 
-    # --- Secondary metrics. --- #
+    # --- Secondary metrics (AI/plagiarism supporting signals + quality). --- #
     c1, c2, c3 = st.columns(3)
-    c1.metric("Citation Health", _fmt(h.get("citation_health_percent"), "%"),
-              f"{h.get('not_found_citation_count', 0)} not found · "
-              f"{h.get('retracted_citation_count', 0)} retracted")
+    c1.metric("Similarity / Plagiarism", _fmt(h.get("similarity_percent"), "%"),
+              help="Open-access scholarly sources + known-text fingerprints only.")
     c2.metric("Writing Quality", _fmt(h.get("quality_score"), "/10"))
     c3.metric("Patchwork paragraphs", h.get("patchwork_paragraph_count", 0),
               help="Paragraphs whose stylometric fingerprint deviates from the rest of the paper.")
@@ -453,8 +459,10 @@ def build_pdf(report: Dict[str, Any]) -> bytes:
 
     # Metrics table -- reuses report['headline_metrics'] (same deterministic
     # values the Streamlit dashboard shows) so the PDF and UI never disagree.
+    # Citation Health leads (PaperGuard's differentiator), matching the
+    # dashboard's card order.
     metrics = [
-        ["AI Content", _fmt(h.get("ai_percent"), "%"), "Citation Health", _fmt(h.get("citation_health_percent"), "%")],
+        ["Citation Health", _fmt(h.get("citation_health_percent"), "%"), "AI Content", _fmt(h.get("ai_percent"), "%")],
         ["Plagiarism", _fmt(h.get("similarity_percent"), "%"), "Writing Quality", _fmt(h.get("quality_score"), "/10")],
     ]
     tbl = Table(metrics, colWidths=[3.6 * cm, 4.0 * cm, 3.6 * cm, 4.0 * cm])
@@ -490,10 +498,10 @@ def build_pdf(report: Dict[str, Any]) -> bytes:
             body,
         ))
 
-    # Per-agent findings
+    # Per-agent findings (Citations first -- PaperGuard's differentiator).
     for name, label in [
-        ("AIDetection", "AI Detection"),
         ("CitationAgent", "Citations"),
+        ("AIDetection", "AI Detection"),
         ("PlagiarismAgent", "Plagiarism"),
         ("QualityAgent", "Writing Quality"),
     ]:
@@ -563,8 +571,8 @@ if gemini_key:
 # --------------------------------------------------------------------------- #
 st.markdown('<p class="pg-title">PaperGuard</p>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="pg-sub">Multi-agent academic integrity verification &mdash; citations, '
-    'AI-content detection with a self-correcting safety net, plagiarism, and writing quality.</p>',
+    '<p class="pg-sub">Citation-integrity verification &mdash; existence, retraction, and '
+    'claim-support checks &mdash; plus AI-content, plagiarism, and writing-quality signals.</p>',
     unsafe_allow_html=True,
 )
 
@@ -599,13 +607,13 @@ if report:
         st.markdown("**Executive summary**")
         st.write(report.get("summary", "(none)"))
 
-    tabs = st.tabs(["Overlay", "AI Heatmap", "Citations", "Plagiarism", "Writing Quality", "References"])
+    tabs = st.tabs(["Citations", "Overlay", "AI Heatmap", "Plagiarism", "Writing Quality", "References"])
     with tabs[0]:
-        render_overlay(report)
-    with tabs[1]:
-        render_heatmap(report)
-    with tabs[2]:
         render_citations(report)
+    with tabs[1]:
+        render_overlay(report)
+    with tabs[2]:
+        render_heatmap(report)
     with tabs[3]:
         render_findings(report, "PlagiarismAgent", "No plagiarism results.")
     with tabs[4]:

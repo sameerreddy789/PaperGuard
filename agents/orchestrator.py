@@ -336,8 +336,14 @@ def _band(value: Optional[float], high: float, low: float, higher_is_worse: bool
 
 def _headline_metrics(results: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Deterministic Turnitin-style headline numbers, computed once here so the UI
-    (or any other consumer) never has to re-derive band thresholds itself.
+    Deterministic dashboard headline numbers, computed once here so the UI
+    (or any other consumer, e.g. the PDF export) never has to re-derive band
+    thresholds itself. All four are computed unconditionally regardless of
+    which one the UI visually leads with -- ``citation_health_percent`` is
+    given top billing in app.py's dashboard (PaperGuard's differentiator; see
+    PROJECT_REPORT.md Sections 7-8), with ``ai_percent``/``similarity_percent``
+    as supporting signals rather than the Turnitin-style headline this project
+    originally led with.
     """
     ai = results.get("AIDetection") or {}
     plag = (results.get("PlagiarismAgent") or {}).get("metadata", {}) or {}

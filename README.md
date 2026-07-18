@@ -1,32 +1,69 @@
 # PaperGuard
 
-> **Multi-Agent Academic Integrity Verification**
-> An open, agent-based alternative to Turnitin: it reports an **AI-writing %** and
-> a **plagiarism/similarity %**, and — uniquely — verifies that each citation's
-> source actually *supports* the claim it's attached to. Built for student work
+> **The citation-integrity layer academic-integrity tools don't have.**
+> PaperGuard checks whether every citation in a paper actually **exists**,
+> whether it's been **retracted**, whether its metadata matches what's cited,
+> and — uniquely, no major commercial tool does this — whether the source
+> actually **supports the claim** it's attached to. AI-writing % and a
+> plagiarism/similarity % (the two numbers Turnitin-style tools lead with)
+> come along as supporting signals, not the headline. Built for student work
 > and research-paper submissions (IEEE, ACM, Elsevier).
 
 ---
 
 ## Why PaperGuard
 
-Turnitin gives two headline numbers (AI % and Similarity %) but is closed and
-checks neither whether a citation *exists* nor whether it *supports* the claim.
-PaperGuard reproduces the two headline numbers with open tooling and adds
-citation claim verification.
+LLM-era citation fabrication — plausible-looking references to papers that
+don't exist, or real papers cited to support claims they don't actually make —
+is a growing, documented problem that none of the major commercial tools
+(Turnitin, GPTZero, Originality.ai, Copyleaks) check for at all. That's
+PaperGuard's core bet: **citation verification is the differentiator, not a
+feature alongside AI/plagiarism detection.**
 
 | Capability | Turnitin | GPTZero | **PaperGuard** |
 |:---|:---:|:---:|:---:|
-| Plagiarism / similarity % | Yes (private DB) | No | Yes (open web + scholarly) |
-| AI-writing % | Yes | Yes | Yes (own trained model + stylometry) |
-| Citation existence check | No | No | Yes |
-| **Citation claim verification** | No | No | **Yes (differentiator)** |
+| **Citation existence check** | No | No | **Yes** |
+| **Citation claim verification** | No | No | **Yes (the differentiator)** |
+| **Retraction detection** | Unclear/undisclosed | No | **Yes** |
+| AI-writing % | Yes | Yes | Yes (own trained model + stylometry) — supporting signal |
+| Plagiarism / similarity % | Yes (private DB) | No | Yes (open-access scholarly + known-text) — supporting signal |
 | Writing-quality analysis | No | No | Yes |
 | Open source | No | No | **Yes** |
 
+We're honest that we can't out-resource Turnitin's private plagiarism database
+or match the training data of dedicated AI-detection vendors on that axis
+alone — see `PROJECT_REPORT.md` Sections 7-8 for the full competitive
+breakdown and why citation verification, not AI detection, is the right thing
+to lead with.
+
 ---
 
-## How AI detection works (model-only)
+## How citation verification works (the differentiator)
+
+For every reference in a paper, `CitationAgent` checks, in order:
+
+1. **Does it exist?** CrossRef (unlimited, no key) with an OpenAlex fallback
+   (also keyless). A DOI or title/author that resolves to nothing is a strong
+   fabrication signal.
+2. **Has it been retracted?** Checked against CrossRef's retraction/update
+   metadata — verified live against a real retracted paper during testing.
+3. **Does the metadata match what's cited?** Title, year, and first author are
+   compared against the resolved CrossRef record; a mismatch suggests
+   tampering or mis-transcription, not just a missing source.
+4. **Does the source actually support the claim it's cited for?** (with an LLM
+   key) The cited work's abstract is compared against the paragraph that
+   cites it, and Gemini judges SUPPORTS / CONTRADICTS / UNRELATED /
+   CANNOT_DETERMINE.
+
+Each reference lands in one of four tiers (VERIFIED / PARTIALLY_VERIFIED /
+EXISTENCE_ONLY / NOT_FOUND), and if more than half a paper's citations are
+unverifiable, that pattern itself is flagged. **No major commercial tool
+(Turnitin, GPTZero, Originality.ai, Copyleaks) does step 4 or step 2** — see
+`PROJECT_REPORT.md` Section 7 for the competitive comparison.
+
+---
+
+## How AI detection works (supporting signal, model-only)
 
 AI detection is done by
 [`desklib/ai-text-detector-v1.01`](https://huggingface.co/desklib/ai-text-detector-v1.01)
@@ -61,7 +98,9 @@ benchmark (`benchmark_samples.json`; see `benchmark_results.md` and
 Output: a per-paragraph AI heatmap + patchwork flags. Known blind spot
 (reduced, not eliminated): style-masked/disguised AI still evades the detector
 25% of the time (down from 100% with v2.0) — mitigated, not eliminated, by
-patchwork detection.
+patchwork detection. **This is why AI% is not the headline metric** — it's a
+probabilistic indicator, cross-checked against writing-tone signals, not a
+verdict.
 
 ---
 
@@ -73,9 +112,9 @@ synthesises, so fact-lookups are trustworthy.
 
 | Agent | Role | Tools |
 |:---|:---|:---|
-| Citation Verifier | Existence + 4-tier claim support | CrossRef, OpenAlex, LLM claim check |
-| AI-Detection Analyst | Per-paragraph AI % + patchwork | Fine-tuned detector, embeddings (no LLM) |
-| Plagiarism Checker | Overlap with open-access scholarly + known-text | CrossRef, OpenAlex, LLM similarity |
+| **Citation Verifier** | Existence + retraction + DOI-consistency + 4-tier claim support | CrossRef, OpenAlex, LLM claim check |
+| AI-Detection Analyst | Per-paragraph AI % + patchwork (supporting signal) | Fine-tuned detector, embeddings (no LLM) |
+| Plagiarism Checker | Overlap with open-access scholarly + known-text (supporting signal) | CrossRef, OpenAlex, LLM similarity |
 | Writing-Quality Reviewer | Structure, readability, prose | Readability math, LLM prose review |
 | Orchestrator / Editor | Coordinates, resolves cross-agent conflicts, builds report | LLM synthesis |
 
@@ -168,11 +207,19 @@ citations still work). Individual agents are CLI-runnable, e.g.
 
 ## Honest limitations
 
-- Not a Turnitin replacement for plagiarism: coverage is open web + open-access
-  scholarly sources, not Turnitin's private student-paper database.
-- AI detection is a probabilistic indicator; fully style-masked AI can evade the
-  model. Results are shown with confidence and, where relevant, reasoning.
-- Best used as a **pre-submission self-check**.
+- Citation verification is the strongest, most differentiated part of this
+  project — but claim-support verification (step 4 above) needs an LLM key;
+  without one, references still get existence/retraction/DOI checks (all
+  keyless), just not the claim-verdict.
+- Not a Turnitin replacement for plagiarism: coverage is open-access scholarly
+  sources + a small known-text list, not Turnitin's private student-paper
+  database, and there is currently no general open-web search layer (see
+  `PROJECT_REPORT.md` Section 11 for why).
+- AI detection is a probabilistic indicator, not a verdict; fully style-masked
+  AI can still evade the model ~25% of the time. Results are cross-checked
+  against writing-tone signals and shown with reasoning, never as a bare score.
+- Best used as a **pre-submission self-check**, with citation integrity as the
+  primary output and AI/plagiarism as secondary signals.
 
 ## Docs
 
